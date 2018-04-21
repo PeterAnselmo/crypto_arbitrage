@@ -1,34 +1,18 @@
 #include <iostream>
-
+#include <string>
+#include <memory>
 #include <vector>
+
+bool ARB_DEBUG = false;
+
+#include "arb_util.cpp"
+#include "crypto_exchange.cpp"
+#include "rapidjson/document.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/stringbuffer.h"
 
 using namespace std;
 
-
-class crypto_exchange {
-    string _name;
-    float _market_fee;
-
-    public:
-
-    crypto_exchange(string new_name){
-        _name = new_name;
-
-        if(_name == "coinbase"){
-            _market_fee = 0.0025;
-        } else {
-            cout << "Unknown Exchange" << endl;
-        }
-    }
-
-    string name(){
-        return _name;
-    }
-    float market_fee() {
-        return _market_fee;
-    }
-
-};
 
 struct trade_pair {
     crypto_exchange* exchange;
@@ -77,10 +61,30 @@ class crypto_market {
     }
 };
 
-void build_graph(crypto_market &market){
+void build_coinbase_graph(crypto_market &market){
+
+    cout << "Building Coinbase Graph..." << endl;
+    crypto_exchange* coinbase = new crypto_exchange("coinbase");
+
+    const std::string url("https://api-public.sandbox.gdax.com/products");
+    std::string http_data = curl_get(url);
+    rapidjson::Document products;
+    products.Parse(http_data.c_str());
+
+    trade_pair tp;
+    tp.exchange = coinbase;
+    for(auto& listed_pair : products.GetArray()){
+        cout << "Pair: " << listed_pair["id"].GetString() << endl;
+
+    }
+
+}
+
+
+void build_sample_graph(crypto_market &market){
     cout << "Building Graph..." << endl;
 
-    crypto_exchange* coinbase = new crypto_exchange("coinbase");
+    crypto_exchange* coinbase = new crypto_exchange("foobase");
 
     trade_pair tp1;
     tp1.exchange = coinbase;
@@ -188,7 +192,8 @@ int main(int argc, char* argv[]){
 
     crypto_market market; 
 
-    build_graph(market);
+    build_sample_graph(market);
+    build_coinbase_graph(market);
     market.list_pairs();
 
     traverse_graph(market);
