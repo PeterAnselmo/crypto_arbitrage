@@ -2,6 +2,8 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 bool ARB_DEBUG = false;
 
@@ -74,7 +76,9 @@ void build_coinbase_graph(crypto_market &market){
     trade_pair tp;
     tp.exchange = coinbase;
     for(auto& listed_pair : products.GetArray()){
-        cout << "Pair: " << listed_pair["id"].GetString() << endl;
+        if(ARB_DEBUG){
+            cout << "Fetcing Pair: " << listed_pair["id"].GetString() << "..." << endl;
+        }
 
         char url[127];
         strcpy(url, "https://api.gdax.com/products/");
@@ -86,12 +90,17 @@ void build_coinbase_graph(crypto_market &market){
         }
 
 
-        http_data = curl_get(url);
+        try {
+            http_data = curl_get(url);
+        } catch (int exception){
+            continue;
+        }
         rapidjson::Document book_data;
         book_data.Parse(http_data.c_str());
         if(!book_data["bids"].Empty() && !book_data["asks"].Empty()){
-            cout << "bid: " << book_data["bids"][0][0].GetString() << endl;
-            cout << "ask: " << book_data["asks"][0][0].GetString()<< endl;
+            cout << "Importing Pair: " << listed_pair["id"].GetString() 
+                 << " bid: " << book_data["bids"][0][0].GetString()
+                 << " ask: " << book_data["asks"][0][0].GetString()<< endl;
             tp.buy = listed_pair["base_currency"].GetString();
             tp.sell = listed_pair["quote_currency"].GetString();
             tp.bid = stof(book_data["bids"][0][0].GetString());
@@ -165,8 +174,9 @@ void build_sample_graph(crypto_market &market){
 
 };
 
-void traverse_graph(crypto_market& market){
+int traverse_graph(crypto_market& market){
     cout << "Traversing Graph..." << endl;
+    int trades_added = 0;
 
     //Naieve O(n^3) terrible graph traversal
     for(const trade_pair& tp1 : market.pairs){
@@ -188,16 +198,18 @@ void traverse_graph(crypto_market& market){
                 ts.add_pair(tp3);
                 ts.print_seq();
                 market.add_seq(ts);
+                trades_added += 1;
 
             }
         }
     }
 
     //market.list_pairs();
+    return trades_added;
 
 }
 
-void execute_trades(crypto_market& market) {
+bool execute_trades(crypto_market& market) {
     cout << "Executing Trades..." << endl;
 
     trade_seq *most_profitable = nullptr;
@@ -206,9 +218,7 @@ void execute_trades(crypto_market& market) {
     vector<trade_seq>::iterator it;
     for(it = market.seqs.begin(); it != market.seqs.end(); ++it){
         if((*it).net_gain > 1.0) {
-            if(count == 0){
-                most_profitable = &(*it);
-            }else if((*it).net_gain > most_profitable->net_gain){
+            if(most_profitable == nullptr || (*it).net_gain > most_profitable->net_gain){
                 most_profitable = &(*it);
             }
         }
@@ -217,23 +227,32 @@ void execute_trades(crypto_market& market) {
     
     if(most_profitable != nullptr){
         most_profitable->print_seq();
+        return true;
     } else {
         cout << "No profitable trades found." << endl;
+        return false;
     }
 }
 
 int main(int argc, char* argv[]){
     cout << "Starting..." << endl;
 
-    crypto_market market; 
+    bool trade_found = false;
+    int trades_checked = 0;
+    while(!trade_found){
+        crypto_market market; 
 
-    //build_sample_graph(market);
-    build_coinbase_graph(market);
-    market.list_pairs();
+        //build_sample_graph(market);
+        build_coinbase_graph(market);
 
-    traverse_graph(market);
+        trades_checked += traverse_graph(market);
 
-    execute_trades(market);
+        trade_found = execute_trades(market);
+        cout << trades_checked << "Potential trade paths checked." << endl;
+
+        chrono::seconds duration(10);
+        this_thread::sleep_for( duration );
+    }
 
     return 0;
 }

@@ -1,2 +1,2 @@
 arb:
-	g++ --std=c++11 -o arb arb.cpp
+	g++ arb.cpp crypto_exchange.cpp -std=c++11 -lcurl -o arb

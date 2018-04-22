@@ -65,6 +65,7 @@ std::string curl_get(const std::string url) {
 
     if(result != CURLE_OK) {
           fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(result));
+          throw 20;
     }
     if (http_code == 200) {
         if(ARB_DEBUG){
@@ -72,7 +73,8 @@ std::string curl_get(const std::string url) {
             std::cout << "HTTP data was:\n" << *http_data.get() << std::endl;
         }
     } else {
-        std::cout << "Couldn't GET from " << url << " - exiting" << std::endl;
+        std::cout << "Received " << http_code << " response code from " << url << endl;
+        throw 30;
     }
 
     return *http_data;
