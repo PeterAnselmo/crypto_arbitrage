@@ -5,63 +5,18 @@
 #include <chrono>
 #include <thread>
 
-bool ARB_DEBUG = false;
+bool ARB_DEBUG = true;
 
-#include "arb_util.cpp"
-#include "crypto_exchange.cpp"
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
+#include "arb_util.cpp"
+#include "crypto_exchange.cpp"
+#include "crypto_market.cpp"
 
 using namespace std;
 
 
-struct trade_pair {
-    crypto_exchange* exchange;
-    string buy;
-    string sell;
-    float bid;
-    float ask;
-};
-
-struct trade_seq {
-    vector<trade_pair> pairs;
-    float net_gain = 1;
-
-    void add_pair(trade_pair new_trade_pair){
-        pairs.push_back(new_trade_pair);
-        net_gain = net_gain * new_trade_pair.ask * (1 - new_trade_pair.exchange->market_fee());
-    }
-
-    void print_seq(){
-        cout << "Trade Seq: ";
-        for(const trade_pair& tp : pairs){
-            cout << tp.exchange->name() << ":" << tp.sell << ">" << tp.buy << "@" << tp.ask << ", ";
-        }
-        cout << "Net Change:" << net_gain << endl;
-    }
-};
-
-class crypto_market {
-
-    public:
-    vector<trade_pair> pairs;
-    vector<trade_seq> seqs;
-
-
-    void add_pair(trade_pair new_trade_pair){
-        pairs.push_back(new_trade_pair);
-    }
-    void add_seq(trade_seq new_trade_seq){
-        seqs.push_back(new_trade_seq);
-    }
-
-    void list_pairs() {
-        for(const trade_pair& tp : pairs){
-            cout << (*tp.exchange).name() << " " << tp.buy << "-" << tp.sell << " " << tp.bid << endl;
-        }
-    }
-};
 
 void build_coinbase_graph(crypto_market &market){
 
@@ -239,20 +194,26 @@ int main(int argc, char* argv[]){
 
     bool trade_found = false;
     int trades_checked = 0;
-    while(!trade_found){
+//    while(!trade_found){
         crypto_market market; 
 
+        market.build_poloniex_graph();
+            /*
+        crypto_exchange poloniex* = new crypto_exchange("poloniex");
+        poloniex.build_graph;
+        */
+
         //build_sample_graph(market);
-        build_coinbase_graph(market);
+        //build_coinbase_graph(market);
 
         trades_checked += traverse_graph(market);
 
         trade_found = execute_trades(market);
         cout << trades_checked << "Potential trade paths checked." << endl;
 
-        chrono::seconds duration(10);
-        this_thread::sleep_for( duration );
-    }
+ //       chrono::seconds duration(10);
+ //       this_thread::sleep_for( duration );
+ //   }
 
     return 0;
 }
