@@ -5,17 +5,14 @@
 #include <chrono>
 #include <thread>
 
-bool ARB_DEBUG = true;
-
+#include "arb_util.cpp"
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
-#include "arb_util.cpp"
 #include "crypto_exchange.cpp"
 #include "crypto_market.cpp"
 
 using namespace std;
-
 
 
 void build_coinbase_graph(crypto_market &market){

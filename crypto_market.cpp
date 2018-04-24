@@ -7,14 +7,6 @@
 
 using namespace std;
 
-struct trade_pair {
-    crypto_exchange* exchange;
-    string buy;
-    string sell;
-    float bid;
-    float ask;
-};
-
 struct trade_seq {
     vector<trade_pair> pairs;
     float net_gain = 1;
@@ -68,39 +60,6 @@ class crypto_market {
     }
     */
 
-    void build_poloniex_graph(){
-        
-        const std::string url("https://poloniex.com/public?command=returnTicker");
-        std::string http_data = curl_get(url);
-        rapidjson::Document products;
-        products.Parse(http_data.c_str());
-
-
-        trade_pair tp;
-        crypto_exchange* poloniex = new crypto_exchange("coinbase");
-        tp.exchange = poloniex;
-
-        for(auto& listed_pair : products.GetObject()){
-            cout << "Import Pair: " << listed_pair.name.GetString()
-                 << " bid: " << listed_pair.value["highestBid"].GetString()
-                 << " ask: " << listed_pair.value["lowestAsk"].GetString() << endl;
-
-            std::vector<std::string> pair_names = split(listed_pair.name.GetString(), '_');
-            
-            tp.sell = pair_names[1];
-            tp.buy = pair_names[0];
-            tp.bid = stof(listed_pair.value["highestBid"].GetString());
-            tp.ask = stof(listed_pair.value["lowestAsk"].GetString());
-            add_pair(tp);
-
-            tp.sell = pair_names[0];
-            tp.buy = pair_names[1];
-            tp.ask = 1 / stof(listed_pair.value["highestBid"].GetString());
-            tp.bid = 1 / stof(listed_pair.value["lowestAsk"].GetString());
-            add_pair(tp);
-
-        }
-    }
 
 };
 

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string>
 #include "arb_util.cpp"
+#include "trade_pair.cpp"
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
@@ -11,6 +12,7 @@
 using namespace std;
 class crypto_exchange {
     string _name;
+    string _get_url;
     string _post_url;
     float _market_fee;
     map<string, float> _balances;
@@ -23,11 +25,13 @@ public:
         if(_name == "coinbase"){
             _market_fee = 0.0025;
         } else if(_name == "poloniex"){
-            _market_fee = 0.0025;
+            _get_url = "https://poloniex.com/public";
             _post_url = "https://poloniex.com/tradingApi";
+            _market_fee = get_poloniex_taker_fee();
         } else if(_name == "poloniex-test"){
-            _market_fee = 0.0025;
-            _post_url = "https://anselmo.me/poloniex/tradingapi.php";
+            _get_url = "https://anselmo.me/poloniex/public.php";
+            _post_url = "http://anselmo.me/poloniex/tradingapi.php";
+            _market_fee = get_poloniex_taker_fee();
         } else if(_name == "foobase"){
             _market_fee = 0.003;
         } else {
@@ -57,11 +61,18 @@ public:
         }
     }
 
+    vector<trade_pair> get_trade_pairs(){
+        if(_name == "poloniex" || _name == "poloniex-test"){
+            return get_poloniex_trade_pairs();
+        }
+    }
+
 
 private:
 
-    std::string poloniex_post(const std::string post_data) {
+    std::string poloniex_post(std::string post_data) {
 
+        post_data = post_data + "&nonce=" + to_string(time(0));
         string api_secret = getenv("ARB_API_SECRET");
         string api_key_header = getenv("ARB_API_KEY");
         string signature = hmac_512_sign(api_secret, post_data);
@@ -131,10 +142,21 @@ private:
         return *http_data;
     }
 
+    float get_poloniex_taker_fee(){
+
+        string post_data = "command=returnFeeInfo";
+        string http_data = poloniex_post(post_data);
+
+        rapidjson::Document fee_json;
+        fee_json.Parse(http_data.c_str());
+
+        return stof(fee_json["takerFee"].GetString());
+    }
+
+
     void populate_poloniex_balances(){
 
-        string post_data = "command=returnBalances&nonce=" + to_string(time(0));
-
+        string post_data = "command=returnBalances";
         string http_data = poloniex_post(post_data);
 
         rapidjson::Document balance_json;
@@ -144,6 +166,33 @@ private:
         for(auto& currency : balance_json.GetObject()){
             _balances[currency.name.GetString()] = stof(currency.value.GetString());
         }
+    }
+
+    vector<trade_pair> get_poloniex_trade_pairs(){
+
+        std::string http_data = curl_get(_get_url + "?command=returnTicker");
+        rapidjson::Document products;
+        products.Parse(http_data.c_str());
+
+        vector<trade_pair> pairs;
+
+        trade_pair tp;
+        for(const auto& listed_pair : products.GetObject()){
+            if(ARB_DEBUG){
+                cout << "Import Pair: " << listed_pair.name.GetString()
+                     << " bid: " << listed_pair.value["highestBid"].GetString()
+                     << " ask: " << listed_pair.value["lowestAsk"].GetString() << endl;
+            }
+
+            std::vector<std::string> pair_names = split(listed_pair.name.GetString(), '_');
+
+            tp.sell = pair_names[1];
+            tp.buy = pair_names[0];
+            tp.bid = stof(listed_pair.value["highestBid"].GetString());
+            tp.ask = stof(listed_pair.value["lowestAsk"].GetString());
+            pairs.push_back(tp);
+        }
+        return pairs;
     }
 
 };
