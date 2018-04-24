@@ -11,8 +11,9 @@
 using namespace std;
 class crypto_exchange {
     string _name;
+    string _post_url;
     float _market_fee;
-	map<string, float> _balances;
+    map<string, float> _balances;
 
 public:
 
@@ -23,6 +24,10 @@ public:
             _market_fee = 0.0025;
         } else if(_name == "poloniex"){
             _market_fee = 0.0025;
+            _post_url = "https://poloniex.com/tradingApi";
+        } else if(_name == "poloniex-test"){
+            _market_fee = 0.0025;
+            _post_url = "https://anselmo.me/poloniex/tradingapi.php";
         } else if(_name == "foobase"){
             _market_fee = 0.003;
         } else {
@@ -36,9 +41,12 @@ public:
     float market_fee() {
         return _market_fee;
     }
+    double balance(string currency){
+        return _balances[currency];
+    }
 
     void populate_balances(){
-        if(_name == "poloniex"){
+        if(_name == "poloniex" || _name == "poloniex-test"){
             populate_poloniex_balances();
         }
     }
@@ -54,8 +62,6 @@ private:
 
     std::string poloniex_post(const std::string post_data) {
 
-        string url = "https://poloniex.com/tradingApi";
-        //string url = "http://mail.anselmo.me/echo.php";
         string api_secret = getenv("ARB_API_SECRET");
         string api_key_header = getenv("ARB_API_KEY");
         string signature = hmac_512_sign(api_secret, post_data);
@@ -64,7 +70,7 @@ private:
         CURL* curl = curl_easy_init();
 
         // Set remote URL.
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_URL, _post_url.c_str());
 
         //const char* c_post_data = post_data.c_str();
         //cout << "Post Data: " << c_post_data << endl;
@@ -114,11 +120,11 @@ private:
         }
         if (http_code == 200) {
             if(ARB_DEBUG){
-                std::cout << "\nGot successful response from " << url << std::endl;
+                std::cout << "\nGot successful response from " << _post_url << std::endl;
                 std::cout << "HTTP data was:\n" << *http_data.get() << std::endl;
             }
         } else {
-            std::cout << "Received " << http_code << " response code from " << url << endl;
+            std::cout << "Received " << http_code << " response code from " << _post_url << endl;
             throw 30;
         }
 
