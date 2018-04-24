@@ -13,6 +13,8 @@
 #include "cryptopp/filters.h"
 #include "cryptopp/base64.h"
 
+bool ARB_DEBUG = false;
+
 using namespace std;
 using namespace CryptoPP;
 
