@@ -1,25 +1,15 @@
 #include "../crypto_exchange.cpp"
 #include "gtest/gtest.h"
 
-/*
 TEST(CryptoExchange, GDAXTradePairsRetrieved){
 
     crypto_exchange* gdax = new crypto_exchange("gdax-test");
 
-    vector<trade_pair> pairs = gdax->get_trade_pairs();
+    ASSERT_EQ(0, gdax->num_trade_pairs());
+    gdax->populate_trade_pairs();
+    ASSERT_EQ(2, gdax->num_trade_pairs());
 
-    //"BTC_LTC":{"last":"0.0251","lowestAsk":"0.02589999","highestBid":"0.0251","percentChange":"0.02390438","baseVolume":"6.16485315","quoteVolume":"245.82513926"}
-
-    //TODO: Create = comparison for trade_pairs
-    bool has_btc_ltc = false;
-    for(const auto& pair : pairs){
-        if(pair.quote == "BTC" && pair.base == "LTC"){
-            has_btc_ltc = true;
-        }
-    }
-    ASSERT_EQ(true, has_btc_ltc);
 }
-*/
 TEST(CryptoExchange, PoloniexFeeIsPopulated){
 
     crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
@@ -41,24 +31,25 @@ TEST(CryptoExchange, PoloniexBalancesArePopulated){
     ASSERT_FLOAT_EQ(0.000, poloniex->balance("ETH"));
     ASSERT_FLOAT_EQ(0.000, poloniex->balance("XMR"));
 }
-
-/*
 TEST(CryptoExchange, PoloniexTradePairsRetrieved){
 
     crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
 
-    vector<trade_pair> pairs = poloniex->get_trade_pairs();
+    ASSERT_EQ(0, poloniex->num_trade_pairs());
 
-    //"BTC_LTC":{"last":"0.0251","lowestAsk":"0.02589999","highestBid":"0.0251","percentChange":"0.02390438","baseVolume":"6.16485315","quoteVolume":"245.82513926"}
+    poloniex->populate_trade_pairs();
 
-    //TODO: Create = comparison for trade_pairs
-    bool has_btc_ltc = false;
-    for(const auto& pair : pairs){
-        if(pair.quote == "BTC" && pair.base == "LTC"){
-            has_btc_ltc = true;
-        }
-    }
-    ASSERT_EQ(true, has_btc_ltc);
+    ASSERT_EQ(198, poloniex->num_trade_pairs());
 }
-*/
+TEST(CryptoExchange, PoloniexFindsProfitableTrade){
+
+    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+
+    poloniex->populate_trade_pairs();
+
+    poloniex->populate_trades();
+    trade_seq* profitable_trade = poloniex->compare_trades();
+
+    ASSERT_FALSE(profitable_trade == nullptr);
+}
 

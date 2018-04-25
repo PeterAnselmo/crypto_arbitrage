@@ -100,8 +100,11 @@ public:
         }
     }
 
+    int num_trade_pairs(){
+        return _pairs.size();
+    }
+
     int populate_trades(){
-        cout << "Traversing Graph..." << endl;
         int trades_added = 0;
 
         //Naieve O(n^3) terrible graph traversal
@@ -122,16 +125,25 @@ public:
                     ts.add_pair(tp1);
                     ts.add_pair(tp2);
                     ts.add_pair(tp3);
-                    ts.print_seq();
-                    _seqs.push_back(ts);
-                    trades_added += 1;
-
+                    if(ARB_DEBUG){
+                        ts.print_seq();
+                    }
+                    if(ts.net_gain > 1.0){
+                        _seqs.push_back(ts);
+                        trades_added += 1;
+                    }
                 }
             }
         }
     }
 
-    void execute_trades() {
+    void print_trade_seqs(){
+        for(auto& ts : _seqs){
+            ts.print_seq();
+        }
+    }
+
+    trade_seq* compare_trades() {
 
         trade_seq *most_profitable = nullptr;
         int count = 0;
@@ -145,14 +157,18 @@ public:
             }
         }
         
-        if(most_profitable != nullptr){
-            cout << "Trade Found!" << endl;
-            most_profitable->print_seq();
-        } else {
-            cout << "No profitable trades found." << endl;
+        if(ARB_DEBUG){
+            if(most_profitable != nullptr){
+                cout << "Profitable Trade Found: " << endl;
+                most_profitable->print_seq();
+            }
         }
+        return most_profitable;
     }
 
+    void execute_trades(trade_seq* trade){
+
+    }
 
 private:
 
@@ -187,9 +203,11 @@ private:
             rapidjson::Document book_data;
             book_data.Parse(http_data.c_str());
             if(!book_data["bids"].Empty() && !book_data["asks"].Empty()){
+                /*
                 cout << "Importing Pair: " << listed_pair["id"].GetString() 
                      << " bid: " << book_data["bids"][0][0].GetString()
                      << " ask: " << book_data["asks"][0][0].GetString()<< endl;
+                     */
                 tp.sell = listed_pair["base_currency"].GetString();
                 tp.buy = listed_pair["quote_currency"].GetString();
                 tp.price = (1.0 - _market_fee) * stof(book_data["bids"][0][0].GetString());
