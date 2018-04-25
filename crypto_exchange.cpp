@@ -10,19 +10,44 @@
 #include "rapidjson/stringbuffer.h"
 
 using namespace std;
+
+struct trade_seq {
+    vector<trade_pair> _trades;
+    float net_gain = 1;
+
+    void add_pair(trade_pair new_trade_pair){
+        _trades.push_back(new_trade_pair);
+        net_gain = net_gain * new_trade_pair.price;
+    }
+
+    void print_seq(){
+        cout << "Trade Seq: ";
+        for(const trade_pair& tp : _trades){
+            cout << tp.sell << ">" << tp.buy << "@" << tp.price << ", ";
+        }
+        cout << "Net Change:" << net_gain << endl;
+    }
+};
+
 class crypto_exchange {
     string _name;
     string _get_url;
     string _post_url;
     float _market_fee;
     map<string, float> _balances;
+    vector<trade_pair> _pairs;
+    vector<trade_seq> _seqs;
 
 public:
 
     crypto_exchange(string new_name){
         _name = new_name;
 
-        if(_name == "coinbase"){
+        if(_name == "gdax"){
+            _get_url = "https://api.gdax.com/products";
+            _market_fee = 0.0025;
+        } else if(_name == "gdax-test"){
+            _get_url = "http://anselmo.me/gdax/products.php";
             _market_fee = 0.0025;
         } else if(_name == "poloniex"){
             _get_url = "https://poloniex.com/public";
@@ -61,14 +86,125 @@ public:
         }
     }
 
-    vector<trade_pair> get_trade_pairs(){
+    void populate_trade_pairs(){
         if(_name == "poloniex" || _name == "poloniex-test"){
-            return get_poloniex_trade_pairs();
+            return populate_poloniex_trade_pairs();
+        }else if(_name == "gdax" || _name == "gdax-test"){
+            return populate_gdax_trade_pairs();
+        }
+    }
+
+    void print_trade_pairs(){
+        for(const auto& pair : _pairs){
+            cout << pair.sell << "-" << pair.buy << " price:" << pair.price << endl;
+        }
+    }
+
+    int populate_trades(){
+        cout << "Traversing Graph..." << endl;
+        int trades_added = 0;
+
+        //Naieve O(n^3) terrible graph traversal
+        for(const auto& tp1 : _pairs){
+            for(const auto& tp2 : _pairs) {
+                if(tp1.buy != tp2.sell){
+                    continue;
+                }
+                for(const auto& tp3 : _pairs){
+                    if(tp2.buy != tp3.sell){
+                        continue;
+                    }
+                    //make sure it's a triangle
+                    if(tp3.buy != tp1.sell) {
+                        continue;
+                    }
+                    trade_seq ts;
+                    ts.add_pair(tp1);
+                    ts.add_pair(tp2);
+                    ts.add_pair(tp3);
+                    ts.print_seq();
+                    _seqs.push_back(ts);
+                    trades_added += 1;
+
+                }
+            }
+        }
+    }
+
+    void execute_trades() {
+
+        trade_seq *most_profitable = nullptr;
+        int count = 0;
+        
+        vector<trade_seq>::iterator it;
+        for(auto& seq : _seqs){
+            if(seq.net_gain > 1.0){
+                if(most_profitable == nullptr || seq.net_gain > most_profitable->net_gain){
+                    most_profitable = &seq;
+                }
+            }
+        }
+        
+        if(most_profitable != nullptr){
+            cout << "Trade Found!" << endl;
+            most_profitable->print_seq();
+        } else {
+            cout << "No profitable trades found." << endl;
         }
     }
 
 
 private:
+
+    void populate_gdax_trade_pairs(){
+
+        std::string http_data = curl_get(_get_url);
+        rapidjson::Document products;
+        products.Parse(http_data.c_str());
+
+        vector<trade_pair> pairs;
+        trade_pair tp;
+        for(auto& listed_pair : products.GetArray()){
+            if(ARB_DEBUG){
+                cout << "Fetcing Pair: " << listed_pair["id"].GetString() << "..." << endl;
+            }
+
+            char url[127];
+            strcpy(url, "https://anselmo.me/gdax/products/");
+            strcat(url, listed_pair["id"].GetString());
+            strcat(url, "/book.php");
+
+            if(ARB_DEBUG){
+                cout << "Product Book URL: " << url << endl;
+            }
+
+
+            try {
+                http_data = curl_get(url);
+            } catch (int exception){
+                continue;
+            }
+            rapidjson::Document book_data;
+            book_data.Parse(http_data.c_str());
+            if(!book_data["bids"].Empty() && !book_data["asks"].Empty()){
+                cout << "Importing Pair: " << listed_pair["id"].GetString() 
+                     << " bid: " << book_data["bids"][0][0].GetString()
+                     << " ask: " << book_data["asks"][0][0].GetString()<< endl;
+                tp.sell = listed_pair["base_currency"].GetString();
+                tp.buy = listed_pair["quote_currency"].GetString();
+                tp.price = (1.0 - _market_fee) * stof(book_data["bids"][0][0].GetString());
+                tp.inverted = false;
+                _pairs.push_back(tp);
+
+                tp.sell = listed_pair["quote_currency"].GetString();
+                tp.buy = listed_pair["base_currency"].GetString();
+                tp.price = (1.0 - _market_fee) / stof(book_data["asks"][0][0].GetString());
+                tp.inverted = true;
+                _pairs.push_back(tp);
+            }
+
+        }
+    }
 
     std::string poloniex_post(std::string post_data) {
 
@@ -168,13 +304,11 @@ private:
         }
     }
 
-    vector<trade_pair> get_poloniex_trade_pairs(){
+    void populate_poloniex_trade_pairs(){
 
         std::string http_data = curl_get(_get_url + "?command=returnTicker");
         rapidjson::Document products;
         products.Parse(http_data.c_str());
-
-        vector<trade_pair> pairs;
 
         trade_pair tp;
         for(const auto& listed_pair : products.GetObject()){
@@ -188,11 +322,16 @@ private:
 
             tp.sell = pair_names[1];
             tp.buy = pair_names[0];
-            tp.bid = stof(listed_pair.value["highestBid"].GetString());
-            tp.ask = stof(listed_pair.value["lowestAsk"].GetString());
-            pairs.push_back(tp);
+            tp.price = (1 - _market_fee) * stof(listed_pair.value["highestBid"].GetString());
+            tp.inverted = false;
+            _pairs.push_back(tp);
+
+            tp.sell = pair_names[0];
+            tp.buy = pair_names[1];
+            tp.price = (1 - _market_fee) / stof(listed_pair.value["lowestAsk"].GetString());
+            tp.inverted = true;
+            _pairs.push_back(tp);
         }
-        return pairs;
     }
 
 };

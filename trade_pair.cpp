@@ -4,10 +4,10 @@
 #include <string>
 
 struct trade_pair {
-    string buy;
     string sell;
-    float bid;
-    float ask;
+    string buy;
+    float price;
+    bool inverted;
 };
 
 #endif

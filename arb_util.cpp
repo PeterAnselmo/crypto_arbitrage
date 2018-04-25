@@ -128,6 +128,6 @@ string hmac_512_sign(string key, string plain) {
             ) // Base64Encoder
     ); // StringSource
     return encoded;
-}
+};
 
 #endif
