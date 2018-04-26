@@ -6,8 +6,9 @@
 struct trade_pair {
     string sell;
     string buy;
-    float price;
-    bool inverted;
+    float quote;
+    float net;
+    string action;
 };
 
 #endif

@@ -13,6 +13,9 @@
 #include "cryptopp/filters.h"
 #include "cryptopp/base64.h"
 
+#define ARB_ERR_INSUFFICIENT_FUNDS 30
+#define ARB_ERR_TRADE_NOT_EX 31
+
 bool ARB_DEBUG = false;
 
 using namespace std;

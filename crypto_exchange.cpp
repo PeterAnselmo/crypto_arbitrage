@@ -2,6 +2,9 @@
 #define CRYPTO_EXCHANGE_H
 
 #include <iostream>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
 #include <string>
 #include "arb_util.cpp"
 #include "trade_pair.cpp"
@@ -17,7 +20,7 @@ struct trade_seq {
 
     void add_pair(trade_pair new_trade_pair){
         trades.push_back(new_trade_pair);
-        net_gain = net_gain * new_trade_pair.price;
+        net_gain = net_gain * new_trade_pair.net;
     }
 
     vector<string> currencies(){
@@ -31,7 +34,7 @@ struct trade_seq {
     void print_seq(){
         cout << "Trade Seq: ";
         for(const trade_pair& tp : trades){
-            cout << tp.sell << ">" << tp.buy << "@" << tp.price << ", ";
+            cout << tp.sell << ">" << tp.buy << "@" << tp.net << ", ";
         }
         cout << "Net Change:" << net_gain << endl;
     }
@@ -80,7 +83,7 @@ public:
     float market_fee() {
         return _market_fee;
     }
-    double balance(string currency){
+    float balance(string currency){
         return _balances[currency];
     }
 
@@ -112,7 +115,7 @@ public:
 
     void print_trade_pairs(){
         for(const auto& pair : _pairs){
-            cout << pair.sell << "-" << pair.buy << " price:" << pair.price << endl;
+            cout << pair.sell << "-" << pair.buy << " net:" << pair.net << endl;
         }
     }
 
@@ -191,11 +194,18 @@ public:
         cout << endl;
 
         for(const auto& tp : trade_seq->trades){
-            cout << "EXECUTING TRADE: " << tp.sell << ">" << tp.buy << "@" << tp.price;
-            if(tp.inverted){
-                cout << " (inverted)";
+            if(_balances[tp.sell] < 0.00000001){
+                cout << "Encountered zero balance for " << tp.sell << ". Throwing Error." << endl;
+                throw ARB_ERR_INSUFFICIENT_FUNDS;
             }
-            cout << endl;
+
+            cout << "EXECUTING TRADE: " << tp.sell << ">" << tp.buy << " quote:" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << "(" << tp.action << ")" << endl;
+
+            if(_name == "poloniex" || _name == "poloniex-test"){
+                if(tp.action == "sell"){
+                    poloniex_sell(tp.sell, tp.buy, tp.quote, _balances[tp.sell]);
+                }
+            }
             /*
             if( !trade.inverted){
 
@@ -206,7 +216,6 @@ public:
 
         }
 
-        populate_balances();
         cout << "Balances After:";
         for(const auto& currency : trade_seq->currencies()){
             cout << " " << currency << ":" << _balances[currency];
@@ -256,14 +265,16 @@ private:
                      */
                 tp.sell = listed_pair["base_currency"].GetString();
                 tp.buy = listed_pair["quote_currency"].GetString();
-                tp.price = (1.0 - _market_fee) * stof(book_data["bids"][0][0].GetString());
-                tp.inverted = false;
+                tp.quote = stof(book_data["bids"][0][0].GetString());
+                tp.net = (1.0 - _market_fee) * tp.quote;
+                tp.action = "buy";
                 _pairs.push_back(tp);
 
                 tp.sell = listed_pair["quote_currency"].GetString();
                 tp.buy = listed_pair["base_currency"].GetString();
-                tp.price = (1.0 - _market_fee) / stof(book_data["asks"][0][0].GetString());
-                tp.inverted = true;
+                tp.quote = stof(book_data["asks"][0][0].GetString());
+                tp.net = (1.0 - _market_fee) / tp.quote;
+                tp.action = "sell";
                 _pairs.push_back(tp);
             }
 
@@ -271,8 +282,8 @@ private:
     }
 
     std::string poloniex_post(std::string post_data) {
-
-        post_data = post_data + "&nonce=" + to_string(time(0));
+        long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+        post_data = post_data + "&nonce=" + to_string(now);
         string api_secret = getenv("ARB_API_SECRET");
         string api_key_header = getenv("ARB_API_KEY");
         string signature = hmac_512_sign(api_secret, post_data);
@@ -286,6 +297,9 @@ private:
         //const char* c_post_data = post_data.c_str();
         //cout << "Post Data: " << c_post_data << endl;
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data.c_str());
+        if(ARB_DEBUG){
+            cout << "Sending Post Data: " << post_data << endl;
+        }
 
         struct curl_slist *chunk = NULL;
         chunk = curl_slist_append(chunk, api_key_header.c_str());
@@ -386,16 +400,51 @@ private:
 
             tp.sell = pair_names[1];
             tp.buy = pair_names[0];
-            tp.price = (1 - _market_fee) * stof(listed_pair.value["highestBid"].GetString());
-            tp.inverted = false;
+            tp.quote = stof(listed_pair.value["highestBid"].GetString());
+            tp.net = (1 - _market_fee) * tp.quote;
+            tp.action = "sell";
             _pairs.push_back(tp);
 
             tp.sell = pair_names[0];
             tp.buy = pair_names[1];
-            tp.price = (1 - _market_fee) / stof(listed_pair.value["lowestAsk"].GetString());
-            tp.inverted = true;
+            tp.quote = stof(listed_pair.value["lowestAsk"].GetString());
+            tp.net = (1 - _market_fee) / tp.quote;
+            tp.action = "buy";
             _pairs.push_back(tp);
         }
+    }
+
+    bool poloniex_sell(string sell, string buy, float rate, float amount){
+        string post_data = "command=sell&currencyPair=" + buy + "_" + sell;
+        stringstream ss_rate, ss_amount;
+        ss_rate << fixed << setprecision(8) << rate;
+        post_data += "&rate=" + ss_rate.str();
+        ss_amount << fixed << setprecision(8) << amount;
+        post_data += "&amount=" + ss_amount.str();
+        post_data += "&immediateOrCancel=1";
+
+        string http_data = poloniex_post(post_data);
+        cout << http_data << endl;
+
+        //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
+        rapidjson::Document trade_result;
+        trade_result.Parse(http_data.c_str());
+
+        if(trade_result["resultingTrades"].Empty()){
+            cout << "No Resulting Trades executed. Throwing Error." << endl;
+            throw ARB_ERR_TRADE_NOT_EX;
+        } else {
+            //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
+            float unfilled = stof(trade_result["amountUnfilled"].GetString());
+            _balances[sell] -= (amount - unfilled);
+
+            float traded_amount;
+            for(const auto& trade : trade_result["resultingTrades"].GetArray()){
+                traded_amount += stof(trade["total"].GetString()) * (1 - _market_fee);
+            }
+            _balances[buy] += traded_amount;
+        }
+
     }
 
 };

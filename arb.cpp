@@ -12,7 +12,7 @@ using namespace std;
 
 int main(int argc, char* argv[]){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
     bool trade_found = false;
     int iterations = 0;
     //int trades_checked = 0;
