@@ -20,14 +20,23 @@ if($_POST['command'] == 'returnBalances'){
 } else if ($_POST['command'] == 'sell'){
     if($_POST['rate'] <= $market_rates[$_POST['currencyPair']]){
         //command=sell&currencyPair=BTC_XRP&rate=0.00008990&amount=179.69999695&immediateOrCancel=1&nonce=1524724856176
-        echo '{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}';
+        $response = array(
+            "orderNumber" => "270275494074",
+            "resultingTrades"=>array(array(
+                "amount"=> $_POST['amount'],
+                "date"=>"2018-04-26 19:52:58",
+                "rate"=> sprintf('%0.8f',$market_rates[$_POST['currencyPair']]),
+                "total"=> strval($market_rates[$_POST['currencyPair']] * $_POST['amount']),
+                "tradeID"=>"16843227",
+                "type"=>$_POST['command'])),
+            "amountUnfilled"=>"0.00000000");
     } else {
         $response = array(
             "orderNumber"=>"144484516971",
             "resultingTrades"=>[],
             "amountUnfilled"=>$_POST["amount"]);
-        echo json_encode($response);
     }
+    echo json_encode($response);
 
 //command=buy&currencyPair=BTC_ZEC&rate=0.03009176&amount=0.34958404&immediateOrCancel=1&nonce=1524771128271
 } else if ($_POST['command'] == 'buy'){
@@ -37,10 +46,10 @@ if($_POST['command'] == 'returnBalances'){
             "resultingTrades"=>array(array(
                 "amount"=> $_POST['amount'],
                 "date"=>"2018-04-26 19:52:58",
-                "rate"=> strval($market_rates[$_POST['currencyPair']]),
+                "rate"=> sprintf('%0.8f',$market_rates[$_POST['currencyPair']]),
                 "total"=> strval($market_rates[$_POST['currencyPair']] * $_POST['amount']),
                 "tradeID"=>"16843227",
-                "type"=>"buy")),
+                "type"=>$_POST['command'])),
             "amountUnfilled"=>"0.00000000");
     } else {
         $response = array(

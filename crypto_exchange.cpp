@@ -34,9 +34,9 @@ struct trade_seq {
     void print_seq(){
         cout << "Trade Seq: ";
         for(const trade_pair& tp : trades){
-            cout << tp.sell << ">" << tp.buy << "@" << tp.net << ", ";
+            cout << tp.sell << ">" << tp.buy << " " << tp.action << "@" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << ", ";
         }
-        cout << "Net Change:" << net_gain << endl;
+        cout << "Net Change:" << fixed << setprecision(8) << net_gain << endl;
     }
 };
 
@@ -176,11 +176,9 @@ public:
             }
         }
         
-        if(ARB_DEBUG){
-            if(most_profitable != nullptr){
-                cout << "Profitable Trade Found: " << endl;
-                most_profitable->print_seq();
-            }
+        if(most_profitable != nullptr){
+            cout << "Profitable Trade Found: " << endl;
+            most_profitable->print_seq();
         }
         return most_profitable;
     }

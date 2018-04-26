@@ -25,11 +25,9 @@ int main(int argc, char* argv[]){
 
         trade_seq* profitable_trade = poloniex->compare_trades();
         if(profitable_trade != nullptr){
-            if(profitable_trade->net_gain > 1.01){
-                trade_found = true;
-            }
+            trade_found = true;
 
-            poloniex->execute_trades(profitable_trade);
+//            poloniex->execute_trades(profitable_trade);
         }
         poloniex->clear_trades_and_pairs();
         cout << "Data has been checked " << ++iterations << " times." << endl;
