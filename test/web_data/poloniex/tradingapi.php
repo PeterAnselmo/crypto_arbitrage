@@ -4,11 +4,13 @@ $balances = array(
     "XRP"=>"50.0",
     "BCH"=>"2.5",
     "LTC"=>"3.25",
-    "ETH"=>"0.0000000");
+    "ETH"=>"0.5000000");
 $market_rates = array(
+    "BTC_ETH" => 0.07401501,
     "BTC_XMR" => 0.02988499,
     "BTC_XRP" => 0.00008996,
-    "BTC_ZEC" => 0.0330);
+    "BTC_ZEC" => 0.0330,
+    "ETH_BCH" => 2.25217686);
 
 if($_POST['command'] == 'returnBalances'){
     echo json_encode($balances);
