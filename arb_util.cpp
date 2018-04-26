@@ -13,6 +13,7 @@
 #include "cryptopp/filters.h"
 #include "cryptopp/base64.h"
 
+#define ARB_ERR_BAD_OPTION 20
 #define ARB_ERR_INSUFFICIENT_FUNDS 30
 #define ARB_ERR_TRADE_NOT_EX 31
 
@@ -54,7 +55,7 @@ std::string curl_get(const std::string url) {
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
     // Don't wait forever, time out after 10 seconds.
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
 
     // Follow HTTP redirects if necessary.
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);

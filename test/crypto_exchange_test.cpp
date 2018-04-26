@@ -108,4 +108,49 @@ TEST(CryptoExchange, PoloniexSellSucceeds){
     ASSERT_FLOAT_EQ(0.0, poloniex->balance("XRP"));
     ASSERT_FLOAT_EQ(1.01612540, poloniex->balance("BTC"));
 }
+TEST(CryptoExchange, PoloniexFailsMispricedBuy){
+
+    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+
+    trade_pair tp;
+    tp.sell = "BTC";
+    tp.buy = "ZEC";
+    tp.quote = 0.0300;
+    tp.action = "buy";
+
+    trade_seq ts;
+    ts.add_pair(tp);
+
+    ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
+    ASSERT_FLOAT_EQ(0, poloniex->balance("ZEC"));
+
+    //TODO: Make this exception expectation more specific
+    ASSERT_ANY_THROW(poloniex->execute_trades(&ts));
+
+    ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
+    ASSERT_FLOAT_EQ(0, poloniex->balance("ZEC"));
+}
+TEST(CryptoExchange, PoloniexBuySucceeds){
+
+    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+
+    trade_pair tp;
+    tp.sell = "BTC";
+    tp.buy = "XMR";
+    tp.quote = 0.0299;
+    tp.action = "buy";
+
+    trade_seq ts;
+    ts.add_pair(tp);
+
+    ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
+    ASSERT_FLOAT_EQ(0, poloniex->balance("XMR"));
+
+    //TODO: Make this exception expectation more specific
+    ASSERT_NO_THROW(poloniex->execute_trades(&ts));
+
+    //Have to account for some dust lost due to conversion rounding
+    ASSERT_NEAR(0.0, poloniex->balance("BTC"), .001);
+    ASSERT_NEAR(33.377959973, poloniex->balance("XMR"), .02);
+}
 

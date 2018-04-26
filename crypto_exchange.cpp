@@ -193,6 +193,7 @@ public:
         }
         cout << endl;
 
+        float amount = _balances[trade_seq->trades.front().sell];
         for(const auto& tp : trade_seq->trades){
             if(_balances[tp.sell] < 0.00000001){
                 cout << "Encountered zero balance for " << tp.sell << ". Throwing Error." << endl;
@@ -203,17 +204,17 @@ public:
 
             if(_name == "poloniex" || _name == "poloniex-test"){
                 if(tp.action == "sell"){
-                    poloniex_sell(tp.sell, tp.buy, tp.quote, _balances[tp.sell]);
+                    amount = poloniex_sell(tp.sell, tp.buy, tp.quote, amount);
+                }else if(tp.action == "buy"){
+                    amount = poloniex_buy(tp.sell, tp.buy, tp.quote, amount);
+                } else {
+                    cout << "Unknown action of trade pair encountered. Throwing Error." << endl;
+                    throw ARB_ERR_BAD_OPTION;
                 }
+            } else {
+                cout << "trade requested on unsupported exchange. Throwing Error." << endl;
+                throw ARB_ERR_BAD_OPTION;
             }
-            /*
-            if( !trade.inverted){
-
-                amount = _balanc
-                buy(
-                */
-
-
         }
 
         cout << "Balances After:";
@@ -295,7 +296,7 @@ private:
         curl_easy_setopt(curl, CURLOPT_URL, _post_url.c_str());
 
         //const char* c_post_data = post_data.c_str();
-        //cout << "Post Data: " << c_post_data << endl;
+        cout << "Post Data: " << post_data << endl;
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data.c_str());
         if(ARB_DEBUG){
             cout << "Sending Post Data: " << post_data << endl;
@@ -315,7 +316,7 @@ private:
         curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
         // Don't wait forever, time out after 10 seconds.
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
 
 
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -414,12 +415,13 @@ private:
         }
     }
 
-    bool poloniex_sell(string sell, string buy, float rate, float amount){
+    //returns balance added to destination currency to use in forward chain
+    float poloniex_sell(string sell, string buy, float rate, float sell_amount){
         string post_data = "command=sell&currencyPair=" + buy + "_" + sell;
         stringstream ss_rate, ss_amount;
         ss_rate << fixed << setprecision(8) << rate;
         post_data += "&rate=" + ss_rate.str();
-        ss_amount << fixed << setprecision(8) << amount;
+        ss_amount << fixed << setprecision(8) << sell_amount;
         post_data += "&amount=" + ss_amount.str();
         post_data += "&immediateOrCancel=1";
 
@@ -430,21 +432,58 @@ private:
         rapidjson::Document trade_result;
         trade_result.Parse(http_data.c_str());
 
+        float traded_amount = 0;
         if(trade_result["resultingTrades"].Empty()){
             cout << "No Resulting Trades executed. Throwing Error." << endl;
             throw ARB_ERR_TRADE_NOT_EX;
         } else {
             //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
             float unfilled = stof(trade_result["amountUnfilled"].GetString());
-            _balances[sell] -= (amount - unfilled);
+            _balances[sell] -= (sell_amount - unfilled);
 
-            float traded_amount;
             for(const auto& trade : trade_result["resultingTrades"].GetArray()){
                 traded_amount += stof(trade["total"].GetString()) * (1 - _market_fee);
             }
             _balances[buy] += traded_amount;
         }
+        return traded_amount;
 
+    }
+
+    float poloniex_buy(string sell, string buy, float rate, float sell_amount){
+        float buy_amount = sell_amount / rate;
+        string post_data = "command=buy&currencyPair=" + sell + "_" + buy;
+        stringstream ss_rate, ss_amount;
+        ss_rate << fixed << setprecision(8) << rate;
+        post_data += "&rate=" + ss_rate.str();
+        ss_amount << fixed << setprecision(8) << buy_amount;
+        post_data += "&amount=" + ss_amount.str();
+        post_data += "&immediateOrCancel=1";
+
+        string http_data = poloniex_post(post_data);
+        cout << http_data << endl;
+
+        //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
+        rapidjson::Document trade_result;
+        trade_result.Parse(http_data.c_str());
+
+        float bought_amount = 0;
+        float sold_amount = 0;
+        if(trade_result["resultingTrades"].Empty()){
+            cout << "No Resulting Trades executed. Throwing Error." << endl;
+            throw ARB_ERR_TRADE_NOT_EX;
+        } else {
+            //{"orderNumber":"270275494074","resultingTrades":[{"amount":"0.31281719","date":"2018-04-26 19:52:58","rate":"0.02989499","total":"0.00935166","tradeID":"16843227","type":"buy"}],"amountUnfilled":"0.00000000"}
+            //float unfilled = stof(trade_result["amountUnfilled"].GetString());
+
+            for(const auto& trade : trade_result["resultingTrades"].GetArray()){
+                bought_amount += stof(trade["amount"].GetString()) * (1 - _market_fee);
+                sold_amount += stof(trade["total"].GetString());
+            }
+            _balances[buy] += bought_amount;
+            _balances[sell] -= sold_amount;
+        }
+        return bought_amount;
     }
 
 };
