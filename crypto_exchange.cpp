@@ -12,17 +12,25 @@
 using namespace std;
 
 struct trade_seq {
-    vector<trade_pair> _trades;
+    vector<trade_pair> trades;
     float net_gain = 1;
 
     void add_pair(trade_pair new_trade_pair){
-        _trades.push_back(new_trade_pair);
+        trades.push_back(new_trade_pair);
         net_gain = net_gain * new_trade_pair.price;
+    }
+
+    vector<string> currencies(){
+        vector<string> _currencies;
+        for(const trade_pair& tp : trades){
+            _currencies.push_back(tp.sell);
+        }
+        return _currencies;
     }
 
     void print_seq(){
         cout << "Trade Seq: ";
-        for(const trade_pair& tp : _trades){
+        for(const trade_pair& tp : trades){
             cout << tp.sell << ">" << tp.buy << "@" << tp.price << ", ";
         }
         cout << "Net Change:" << net_gain << endl;
@@ -53,10 +61,12 @@ public:
             _get_url = "https://poloniex.com/public";
             _post_url = "https://poloniex.com/tradingApi";
             _market_fee = get_poloniex_taker_fee();
+            populate_balances();
         } else if(_name == "poloniex-test"){
             _get_url = "https://anselmo.me/poloniex/public.php";
             _post_url = "http://anselmo.me/poloniex/tradingapi.php";
             _market_fee = get_poloniex_taker_fee();
+            populate_balances();
         } else if(_name == "foobase"){
             _market_fee = 0.003;
         } else {
@@ -92,6 +102,12 @@ public:
         }else if(_name == "gdax" || _name == "gdax-test"){
             return populate_gdax_trade_pairs();
         }
+    }
+
+    void clear_trades_and_pairs(){
+        _seqs.clear();
+        _pairs.clear();
+
     }
 
     void print_trade_pairs(){
@@ -166,7 +182,37 @@ public:
         return most_profitable;
     }
 
-    void execute_trades(trade_seq* trade){
+    void execute_trades(trade_seq* trade_seq){
+
+        cout << "Balances Before:";
+        for(const auto& currency : trade_seq->currencies()){
+            cout << " " << currency << ":" << _balances[currency];
+        }
+        cout << endl;
+
+        for(const auto& tp : trade_seq->trades){
+            cout << "EXECUTING TRADE: " << tp.sell << ">" << tp.buy << "@" << tp.price;
+            if(tp.inverted){
+                cout << " (inverted)";
+            }
+            cout << endl;
+            /*
+            if( !trade.inverted){
+
+                amount = _balanc
+                buy(
+                */
+
+
+        }
+
+        populate_balances();
+        cout << "Balances After:";
+        for(const auto& currency : trade_seq->currencies()){
+            cout << " " << currency << ":" << _balances[currency];
+        }
+        cout << endl;
+        
 
     }
 

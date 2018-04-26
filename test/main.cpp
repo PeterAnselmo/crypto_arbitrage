@@ -9,14 +9,18 @@ int main(int argc, char **argv){
     gdax.import_pairs(gdax);
     market.add_pairs(gdax);
 
+    */
     crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
     cout << "Market Fee: " <<  poloniex->market_fee() << endl;
     poloniex->populate_trade_pairs();
     poloniex->print_trade_pairs();
     poloniex->populate_trades();
-    poloniex->execute_trades();
+    trade_seq* profitable_trade = poloniex->compare_trades();
+    if(profitable_trade != nullptr){
+        poloniex->execute_trades(profitable_trade);
+    }
 
-    */
+    /*
     ::testing::InitGoogleTest(&argc, argv);
 
     int retval;
@@ -24,5 +28,6 @@ int main(int argc, char **argv){
 
 
     return retval;
+    */
 }
     
