@@ -30,7 +30,7 @@ TEST(CryptoExchange, PoloniexBalancesArePopulated){
     ASSERT_FLOAT_EQ(1.000, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(2.500, poloniex->balance("BCH"));
     ASSERT_FLOAT_EQ(3.250, poloniex->balance("LTC"));
-    ASSERT_FLOAT_EQ(0.000, poloniex->balance("ETH"));
+    ASSERT_FLOAT_EQ(0.500, poloniex->balance("ETH"));
     ASSERT_FLOAT_EQ(0.000, poloniex->balance("XMR"));
 }
 TEST(CryptoExchange, PoloniexTradePairsRetrieved){
@@ -106,7 +106,7 @@ TEST(CryptoExchange, PoloniexSellSucceeds){
     ASSERT_NO_THROW(poloniex->execute_trades(&ts));
 
     ASSERT_FLOAT_EQ(0.0, poloniex->balance("XRP"));
-    ASSERT_FLOAT_EQ(1.01612540, poloniex->balance("BTC"));
+    ASSERT_FLOAT_EQ(1.00448676, poloniex->balance("BTC"));
 }
 TEST(CryptoExchange, PoloniexFailsMispricedBuy){
 
@@ -153,4 +153,21 @@ TEST(CryptoExchange, PoloniexBuySucceeds){
     ASSERT_NEAR(0.0, poloniex->balance("BTC"), .001);
     ASSERT_NEAR(33.377959973, poloniex->balance("XMR"), .02);
 }
+TEST(CryptoExchange, EntireSequenceExcecuted){
+    //Trade Seq: ETH>BTC sell@0.07401501 net:0.07382997, BTC>BCH buy@0.15167712 net:6.57646990, BCH>ETH sell@2.25217676 net:2.24654627, Net Change:1.09078932
 
+    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+
+    float starting_balance = poloniex->balance("ETH");
+    float target_balance = starting_balance * 1.09078932;
+
+    ASSERT_NO_THROW({
+        poloniex->populate_trade_pairs();
+        poloniex->populate_trades();
+
+        trade_seq* profitable_trade = poloniex->compare_trades();
+        poloniex->execute_trades(profitable_trade);
+    });
+
+    ASSERT_FLOAT_EQ(target_balance, poloniex->balance("ETH"));
+}

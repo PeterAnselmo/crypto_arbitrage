@@ -343,10 +343,7 @@ private:
             throw 20;
         }
         if (http_code == 200) {
-            if(ARB_DEBUG){
-                std::cout << "\nGot successful response from " << _post_url << std::endl;
-                std::cout << "HTTP data was:\n" << *http_data.get() << std::endl;
-            }
+            std::cout << "HTTP Response: " << *http_data.get() << std::endl;
         } else {
             std::cout << "Received " << http_code << " response code from " << _post_url << endl;
             throw 30;
@@ -424,7 +421,6 @@ private:
         post_data += "&immediateOrCancel=1";
 
         string http_data = poloniex_post(post_data);
-        cout << http_data << endl;
 
         //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
         rapidjson::Document trade_result;
@@ -459,7 +455,6 @@ private:
         post_data += "&immediateOrCancel=1";
 
         string http_data = poloniex_post(post_data);
-        cout << http_data << endl;
 
         //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
         rapidjson::Document trade_result;

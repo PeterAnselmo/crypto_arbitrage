@@ -83,10 +83,7 @@ std::string curl_get(const std::string url) {
           throw 20;
     }
     if (http_code == 200) {
-        if(ARB_DEBUG){
-            std::cout << "\nGot successful response from " << url << std::endl;
-            std::cout << "HTTP data was:\n" << *http_data.get() << std::endl;
-        }
+        std::cout << "HTTP Response: " << *http_data.get() << std::endl;
     } else {
         std::cout << "Received " << http_code << " response code from " << url << endl;
         throw 30;
