@@ -16,7 +16,7 @@ using namespace std;
 
 struct trade_seq {
     vector<trade_pair> trades;
-    float net_gain = 1;
+    double net_gain = 1;
 
     void add_pair(trade_pair new_trade_pair){
         trades.push_back(new_trade_pair);
@@ -44,8 +44,8 @@ class crypto_exchange {
     string _name;
     string _get_url;
     string _post_url;
-    float _market_fee;
-    map<string, float> _balances;
+    double _market_fee;
+    map<string, double> _balances;
     vector<trade_pair> _pairs;
     vector<trade_seq> _seqs;
 
@@ -80,10 +80,10 @@ public:
     string name(){
         return _name;
     }
-    float market_fee() {
+    double market_fee() {
         return _market_fee;
     }
-    float balance(string currency){
+    double balance(string currency){
         return _balances[currency];
     }
 
@@ -147,7 +147,7 @@ public:
                     if(ARB_DEBUG){
                         ts.print_seq();
                     }
-                    if(ts.net_gain > 1.0){
+                    if(ts.net_gain > 1.0010){
                         _seqs.push_back(ts);
                         trades_added += 1;
                     }
@@ -191,14 +191,14 @@ public:
         }
         cout << endl;
 
-        float amount = _balances[trade_seq->trades.front().sell];
+        double amount = _balances[trade_seq->trades.front().sell];
         for(const auto& tp : trade_seq->trades){
-            if(_balances[tp.sell] < 0.00000001){
-                cout << "Encountered zero balance for " << tp.sell << ". Throwing Error." << endl;
+            cout << "EXECUTING TRADE: " << tp.sell << ">" << tp.buy << " quote:" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << "(" << tp.action << ")" << endl;
+            if(_balances[tp.sell] < 0.000001){
+                cout << "Encountered near-zero balance for " << tp.sell << ". Throwing Error." << endl;
                 throw ARB_ERR_INSUFFICIENT_FUNDS;
             }
 
-            cout << "EXECUTING TRADE: " << tp.sell << ">" << tp.buy << " quote:" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << "(" << tp.action << ")" << endl;
 
             if(_name == "poloniex" || _name == "poloniex-test"){
                 if(tp.action == "sell"){
@@ -264,14 +264,14 @@ private:
                      */
                 tp.sell = listed_pair["base_currency"].GetString();
                 tp.buy = listed_pair["quote_currency"].GetString();
-                tp.quote = stof(book_data["bids"][0][0].GetString());
+                tp.quote = stod(book_data["bids"][0][0].GetString());
                 tp.net = (1.0 - _market_fee) * tp.quote;
                 tp.action = "buy";
                 _pairs.push_back(tp);
 
                 tp.sell = listed_pair["quote_currency"].GetString();
                 tp.buy = listed_pair["base_currency"].GetString();
-                tp.quote = stof(book_data["asks"][0][0].GetString());
+                tp.quote = stod(book_data["asks"][0][0].GetString());
                 tp.net = (1.0 - _market_fee) / tp.quote;
                 tp.action = "sell";
                 _pairs.push_back(tp);
@@ -313,8 +313,8 @@ private:
         // Don't bother trying IPv6, which would increase DNS resolution time.
         curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
-        // Don't wait forever, time out after 10 seconds.
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+        // Don't wait forever, time out after 15 seconds.
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
 
 
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -352,7 +352,7 @@ private:
         return *http_data;
     }
 
-    float get_poloniex_taker_fee(){
+    double get_poloniex_taker_fee(){
 
         string post_data = "command=returnFeeInfo";
         string http_data = poloniex_post(post_data);
@@ -360,7 +360,7 @@ private:
         rapidjson::Document fee_json;
         fee_json.Parse(http_data.c_str());
 
-        return stof(fee_json["takerFee"].GetString());
+        return stod(fee_json["takerFee"].GetString());
     }
 
 
@@ -374,7 +374,7 @@ private:
 
         //convert to hash for fast lookups. Is this necessary? Should the currency be stored as JSON?
         for(auto& currency : balance_json.GetObject()){
-            _balances[currency.name.GetString()] = stof(currency.value.GetString());
+            _balances[currency.name.GetString()] = stod(currency.value.GetString());
         }
     }
 
@@ -396,14 +396,14 @@ private:
 
             tp.sell = pair_names[1];
             tp.buy = pair_names[0];
-            tp.quote = stof(listed_pair.value["highestBid"].GetString());
+            tp.quote = stod(listed_pair.value["highestBid"].GetString());
             tp.net = (1 - _market_fee) * tp.quote;
             tp.action = "sell";
             _pairs.push_back(tp);
 
             tp.sell = pair_names[0];
             tp.buy = pair_names[1];
-            tp.quote = stof(listed_pair.value["lowestAsk"].GetString());
+            tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
             tp.net = (1 - _market_fee) / tp.quote;
             tp.action = "buy";
             _pairs.push_back(tp);
@@ -411,7 +411,7 @@ private:
     }
 
     //returns balance added to destination currency to use in forward chain
-    float poloniex_sell(string sell, string buy, float rate, float sell_amount){
+    double poloniex_sell(string sell, string buy, double rate, double sell_amount){
         string post_data = "command=sell&currencyPair=" + buy + "_" + sell;
         stringstream ss_rate, ss_amount;
         ss_rate << fixed << setprecision(8) << rate;
@@ -426,17 +426,17 @@ private:
         rapidjson::Document trade_result;
         trade_result.Parse(http_data.c_str());
 
-        float traded_amount = 0;
+        double traded_amount = 0;
         if(trade_result["resultingTrades"].Empty()){
             cout << "No Resulting Trades executed. Throwing Error." << endl;
             throw ARB_ERR_TRADE_NOT_EX;
         } else {
             //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
-            float unfilled = stof(trade_result["amountUnfilled"].GetString());
+            double unfilled = stod(trade_result["amountUnfilled"].GetString());
             _balances[sell] -= (sell_amount - unfilled);
 
             for(const auto& trade : trade_result["resultingTrades"].GetArray()){
-                traded_amount += stof(trade["total"].GetString()) * (1 - _market_fee);
+                traded_amount += stod(trade["total"].GetString()) * (1 - _market_fee);
             }
             _balances[buy] += traded_amount;
         }
@@ -444,8 +444,8 @@ private:
 
     }
 
-    float poloniex_buy(string sell, string buy, float rate, float sell_amount){
-        float buy_amount = sell_amount / rate;
+    double poloniex_buy(string sell, string buy, double rate, double sell_amount){
+        double buy_amount = sell_amount / rate;
         string post_data = "command=buy&currencyPair=" + sell + "_" + buy;
         stringstream ss_rate, ss_amount;
         ss_rate << fixed << setprecision(8) << rate;
@@ -460,18 +460,18 @@ private:
         rapidjson::Document trade_result;
         trade_result.Parse(http_data.c_str());
 
-        float bought_amount = 0;
-        float sold_amount = 0;
+        double bought_amount = 0;
+        double sold_amount = 0;
         if(trade_result["resultingTrades"].Empty()){
             cout << "No Resulting Trades executed. Throwing Error." << endl;
             throw ARB_ERR_TRADE_NOT_EX;
         } else {
             //{"orderNumber":"270275494074","resultingTrades":[{"amount":"0.31281719","date":"2018-04-26 19:52:58","rate":"0.02989499","total":"0.00935166","tradeID":"16843227","type":"buy"}],"amountUnfilled":"0.00000000"}
-            //float unfilled = stof(trade_result["amountUnfilled"].GetString());
+            //double unfilled = stod(trade_result["amountUnfilled"].GetString());
 
             for(const auto& trade : trade_result["resultingTrades"].GetArray()){
-                bought_amount += stof(trade["amount"].GetString()) * (1 - _market_fee);
-                sold_amount += stof(trade["total"].GetString());
+                bought_amount += stod(trade["amount"].GetString()) * (1 - _market_fee);
+                sold_amount += stod(trade["total"].GetString());
             }
             _balances[buy] += bought_amount;
             _balances[sell] -= sold_amount;
