@@ -23,7 +23,7 @@ struct trade_seq {
         net_gain = net_gain * new_trade_pair.net;
     }
 
-    vector<string> currencies(){
+    vector<string> currencies() const{
         vector<string> _currencies;
         for(const trade_pair& tp : trades){
             _currencies.push_back(tp.sell);
@@ -31,7 +31,7 @@ struct trade_seq {
         return _currencies;
     }
 
-    void print_seq(){
+    void print_seq() const {
         cout << "Trade Seq: ";
         for(const trade_pair& tp : trades){
             cout << tp.sell << ">" << tp.buy << " " << tp.action << "@" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << ", ";
@@ -77,14 +77,14 @@ public:
         }
     }
 
-    string name(){
+    string name() const {
         return _name;
     }
-    double market_fee() {
+    double market_fee() const {
         return _market_fee;
     }
-    double balance(string currency){
-        return _balances[currency];
+    double balance(const string& currency) const{
+        return _balances.at(currency);
     }
 
     void populate_balances(){
@@ -93,7 +93,7 @@ public:
         }
     }
 
-    void print_balances(){
+    void print_balances() const{
         for(const auto& currency : _balances){
             cout << currency.first << ": " << currency.second << endl;
         }
@@ -113,13 +113,13 @@ public:
 
     }
 
-    void print_trade_pairs(){
+    void print_trade_pairs() const{
         for(const auto& pair : _pairs){
             cout << pair.sell << "-" << pair.buy << " net:" << pair.net << endl;
         }
     }
 
-    int num_trade_pairs(){
+    int num_trade_pairs() const{
         return _pairs.size();
     }
 
@@ -156,8 +156,8 @@ public:
         }
     }
 
-    void print_trade_seqs(){
-        for(auto& ts : _seqs){
+    void print_trade_seqs() const{
+        for(const auto& ts : _seqs){
             ts.print_seq();
         }
     }
@@ -171,6 +171,11 @@ public:
         for(auto& seq : _seqs){
             if(seq.net_gain > 1.0){
                 if(most_profitable == nullptr || seq.net_gain > most_profitable->net_gain){
+                    if(_balances.at(seq.trades.front().sell) < 0.000001){
+                        cout << "Found profitable trade, but skipping due to no balance:" << endl;
+                        seq.print_seq();
+                        continue;
+                    }
                     most_profitable = &seq;
                 }
             }
@@ -192,19 +197,24 @@ public:
         cout << endl;
 
         double amount = _balances[trade_seq->trades.front().sell];
+        int trade_num = 0;
         for(const auto& tp : trade_seq->trades){
-            cout << "EXECUTING TRADE: " << tp.sell << ">" << tp.buy << " quote:" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << "(" << tp.action << ")" << endl;
+            cout << "EXECUTING TRADE " << ++trade_num << ": " << tp.sell << ">" << tp.buy << " quote:" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << "(" << tp.action << ")" << endl;
             if(_balances[tp.sell] < 0.000001){
                 cout << "Encountered near-zero balance for " << tp.sell << ". Throwing Error." << endl;
                 throw ARB_ERR_INSUFFICIENT_FUNDS;
             }
 
+            bool immediate_only = true;
+            if(trade_num == 3){
+                immediate_only = false;
+            }
 
             if(_name == "poloniex" || _name == "poloniex-test"){
                 if(tp.action == "sell"){
-                    amount = poloniex_sell(tp.sell, tp.buy, tp.quote, amount);
+                    amount = poloniex_sell(tp.sell, tp.buy, tp.quote, amount, immediate_only);
                 }else if(tp.action == "buy"){
-                    amount = poloniex_buy(tp.sell, tp.buy, tp.quote, amount);
+                    amount = poloniex_buy(tp.sell, tp.buy, tp.quote, amount, immediate_only);
                 } else {
                     cout << "Unknown action of trade pair encountered. Throwing Error." << endl;
                     throw ARB_ERR_BAD_OPTION;
@@ -280,7 +290,7 @@ private:
         }
     }
 
-    std::string poloniex_post(std::string post_data) {
+    std::string poloniex_post(std::string post_data) const {
         long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         post_data = post_data + "&nonce=" + to_string(now);
         string api_secret = getenv("ARB_API_SECRET");
@@ -352,7 +362,7 @@ private:
         return *http_data;
     }
 
-    double get_poloniex_taker_fee(){
+    double get_poloniex_taker_fee() const{
 
         string post_data = "command=returnFeeInfo";
         string http_data = poloniex_post(post_data);
@@ -373,7 +383,7 @@ private:
         balance_json.Parse(http_data.c_str());
 
         //convert to hash for fast lookups. Is this necessary? Should the currency be stored as JSON?
-        for(auto& currency : balance_json.GetObject()){
+        for(const auto& currency : balance_json.GetObject()){
             _balances[currency.name.GetString()] = stod(currency.value.GetString());
         }
     }
@@ -411,14 +421,17 @@ private:
     }
 
     //returns balance added to destination currency to use in forward chain
-    double poloniex_sell(string sell, string buy, double rate, double sell_amount){
+    double poloniex_sell(string sell, string buy, double rate, double sell_amount, bool immediate_only){
+        rate -= 0.00000001; //round down to ensure sale executes
         string post_data = "command=sell&currencyPair=" + buy + "_" + sell;
         stringstream ss_rate, ss_amount;
         ss_rate << fixed << setprecision(8) << rate;
         post_data += "&rate=" + ss_rate.str();
         ss_amount << fixed << setprecision(8) << sell_amount;
         post_data += "&amount=" + ss_amount.str();
-        post_data += "&immediateOrCancel=1";
+        if(immediate_only){
+            post_data += "&immediateOrCancel=1";
+        }
 
         string http_data = poloniex_post(post_data);
 
@@ -444,7 +457,8 @@ private:
 
     }
 
-    double poloniex_buy(string sell, string buy, double rate, double sell_amount){
+    double poloniex_buy(string sell, string buy, double rate, double sell_amount, bool immediate_only){
+        rate += 0.00000001; //round up to ensure sale executes
         double buy_amount = sell_amount / rate;
         string post_data = "command=buy&currencyPair=" + sell + "_" + buy;
         stringstream ss_rate, ss_amount;
@@ -452,7 +466,9 @@ private:
         post_data += "&rate=" + ss_rate.str();
         ss_amount << fixed << setprecision(8) << buy_amount;
         post_data += "&amount=" + ss_amount.str();
-        post_data += "&immediateOrCancel=1";
+        if(immediate_only){
+            post_data += "&immediateOrCancel=1";
+        }
 
         string http_data = poloniex_post(post_data);
 

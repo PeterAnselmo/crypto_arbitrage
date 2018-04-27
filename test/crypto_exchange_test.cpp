@@ -30,7 +30,7 @@ TEST(CryptoExchange, PoloniexBalancesArePopulated){
     ASSERT_FLOAT_EQ(1.000, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(2.500, poloniex->balance("BCH"));
     ASSERT_FLOAT_EQ(3.250, poloniex->balance("LTC"));
-    ASSERT_FLOAT_EQ(0.500, poloniex->balance("ETH"));
+    ASSERT_FLOAT_EQ(0.000, poloniex->balance("ETH"));
     ASSERT_FLOAT_EQ(0.000, poloniex->balance("XMR"));
 }
 TEST(CryptoExchange, PoloniexTradePairsRetrieved){
@@ -158,7 +158,7 @@ TEST(CryptoExchange, EntireSequenceExcecuted){
 
     crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
 
-    float starting_balance = poloniex->balance("ETH");
+    float starting_balance = poloniex->balance("BTC");
     float target_balance = starting_balance * 1.09078932;
 
     ASSERT_NO_THROW({
@@ -169,5 +169,5 @@ TEST(CryptoExchange, EntireSequenceExcecuted){
         poloniex->execute_trades(profitable_trade);
     });
 
-    ASSERT_FLOAT_EQ(target_balance, poloniex->balance("ETH"));
+    ASSERT_FLOAT_EQ(target_balance, poloniex->balance("BTC"));
 }
