@@ -18,11 +18,6 @@ struct trade_seq {
     vector<trade_pair> trades;
     double net_gain = 1;
 
-    void add_pair(trade_pair new_trade_pair){
-        trades.push_back(new_trade_pair);
-        net_gain = net_gain * new_trade_pair.net;
-    }
-
     vector<string> currencies() const{
         vector<string> _currencies;
         for(const trade_pair& tp : trades){
@@ -126,6 +121,7 @@ public:
     int populate_trades(){
         int trades_added = 0;
 
+        double net;
         //Naieve O(n^3) terrible graph traversal
         for(const auto& tp1 : _pairs){
             for(const auto& tp2 : _pairs) {
@@ -140,17 +136,23 @@ public:
                     if(tp3.buy != tp1.sell) {
                         continue;
                     }
+
+                    //optimization: don't copy the pair objects unless it's worth it
+                    net = tp1.net * tp2.net * tp3.net;
+                    if(net < 1.0010){
+                        continue;
+                    }
+
                     trade_seq ts;
-                    ts.add_pair(tp1);
-                    ts.add_pair(tp2);
-                    ts.add_pair(tp3);
+                    ts.trades.push_back(tp1);
+                    ts.trades.push_back(tp2);
+                    ts.trades.push_back(tp3);
+                    ts.net_gain = net;
                     if(ARB_DEBUG){
                         ts.print_seq();
                     }
-                    if(ts.net_gain > 1.0010){
-                        _seqs.push_back(ts);
-                        trades_added += 1;
-                    }
+                    _seqs.push_back(ts);
+                    trades_added += 1;
                 }
             }
         }

@@ -65,7 +65,7 @@ TEST(CryptoExchange, PoloniexFailsUnderfundedSell){
     tp.action = "sell";
 
     trade_seq ts;
-    ts.add_pair(tp);
+    ts.trades.push_back(tp);
 
     //TODO: Make this exception expectation more specific
     ASSERT_ANY_THROW(poloniex->execute_trades(&ts));
@@ -81,7 +81,7 @@ TEST(CryptoExchange, PoloniexFailsMispricedSell){
     tp.action = "sell";
 
     trade_seq ts;
-    ts.add_pair(tp);
+    ts.trades.push_back(tp);
 
     //TODO: Make this exception expectation more specific
     ASSERT_ANY_THROW(poloniex->execute_trades(&ts));
@@ -97,7 +97,7 @@ TEST(CryptoExchange, PoloniexSellSucceeds){
     tp.action = "sell";
 
     trade_seq ts;
-    ts.add_pair(tp);
+    ts.trades.push_back(tp);
 
     ASSERT_FLOAT_EQ(50.0, poloniex->balance("XRP"));
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
@@ -119,7 +119,7 @@ TEST(CryptoExchange, PoloniexFailsMispricedBuy){
     tp.action = "buy";
 
     trade_seq ts;
-    ts.add_pair(tp);
+    ts.trades.push_back(tp);
 
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(0, poloniex->balance("ZEC"));
@@ -141,7 +141,7 @@ TEST(CryptoExchange, PoloniexBuySucceeds){
     tp.action = "buy";
 
     trade_seq ts;
-    ts.add_pair(tp);
+    ts.trades.push_back(tp);
 
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(0, poloniex->balance("XMR"));
