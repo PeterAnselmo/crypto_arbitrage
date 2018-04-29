@@ -23,10 +23,10 @@ int main(int argc, char* argv[]){
     */
     while(!trade_found){
         cout << "Data has been checked " << ++iterations << " times." << endl;
-        chrono::seconds duration(1);
+        chrono::milliseconds duration(500);
         this_thread::sleep_for( duration );
 
-        //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+     //   std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         poloniex->populate_trade_pairs();
 
         poloniex->populate_trades();

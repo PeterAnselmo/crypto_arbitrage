@@ -36,13 +36,7 @@ namespace
     }
 }
 
-std::string curl_get(const std::string url) {
-    // Response information.
-    long http_code;
-    CURLcode result;
-    const std::unique_ptr<std::string> http_data(new std::string());
-
-    CURL* curl = curl_easy_init();
+void set_curl_get_options(CURL* curl, const std::string url){
 
     // Set remote URL.
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -54,19 +48,29 @@ std::string curl_get(const std::string url) {
     // Don't bother trying IPv6, which would increase DNS resolution time.
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
+    //disable Nagle algorithm
+    curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 0);
+
     // Don't wait forever, time out after 10 seconds.
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
 
     // Follow HTTP redirects if necessary.
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0);
 
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
 
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto trading automated trader");
 
     // Hook up data handling function.
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
+}
+
+std::string curl_get(CURL* curl) {
+    // Response information.
+    long http_code;
+    CURLcode result;
+    const std::unique_ptr<std::string> http_data(new std::string());
 
     // Hook up data container (will be passed as the last parameter to the
     // callback handling function).  Can be any pointer type, since it will
@@ -76,7 +80,6 @@ std::string curl_get(const std::string url) {
     // Run our HTTP GET command, capture the HTTP response code, and clean up.
     result = curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-    curl_easy_cleanup(curl);
 
     if(result != CURLE_OK) {
           fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(result));
@@ -87,7 +90,9 @@ std::string curl_get(const std::string url) {
             std::cout << "HTTP Response: " << *http_data.get() << std::endl;
         }
     } else {
-        std::cout << "Received " << http_code << " response code from " << url << endl;
+        const std::unique_ptr<std::string> last_url;
+        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &last_url);
+        std::cout << "Received " << http_code << " response code from " << *last_url.get() << endl;
         throw 30;
     }
 

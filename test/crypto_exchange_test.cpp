@@ -1,6 +1,7 @@
 #include "../crypto_exchange.cpp"
 #include "gtest/gtest.h"
 
+/*
 TEST(CryptoExchange, GDAXTradePairsRetrieved){
 
     crypto_exchange* gdax = new crypto_exchange("gdax-test");
@@ -10,6 +11,7 @@ TEST(CryptoExchange, GDAXTradePairsRetrieved){
     ASSERT_EQ(2, gdax->num_trade_pairs());
 
 }
+*/
 TEST(CryptoExchange, PoloniexFeeIsPopulated){
 
     crypto_exchange* poloniex = new crypto_exchange("poloniex-test");

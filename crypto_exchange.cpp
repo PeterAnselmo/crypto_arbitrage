@@ -43,11 +43,16 @@ class crypto_exchange {
     map<string, double> _balances;
     vector<trade_pair> _pairs;
     vector<trade_seq> _seqs;
+    CURL* _curl_get;
+    CURL* _curl_post;
 
 public:
 
     crypto_exchange(string new_name){
         _name = new_name;
+
+        _curl_get = curl_easy_init();
+        _curl_post = curl_easy_init();
 
         if(_name == "gdax"){
             _get_url = "https://api.gdax.com/products";
@@ -56,13 +61,21 @@ public:
             _get_url = "http://anselmo.me/gdax/products.php";
             _market_fee = 0.0025;
         } else if(_name == "poloniex"){
-            _get_url = "https://poloniex.com/public";
+            _get_url = "https://poloniex.com/public?command=returnTicker";
             _post_url = "https://poloniex.com/tradingApi";
+
+            set_curl_get_options(_curl_get, _get_url);
+            set_curl_post_options(_curl_post);
+
             _market_fee = get_poloniex_taker_fee();
             populate_balances();
         } else if(_name == "poloniex-test"){
-            _get_url = "https://anselmo.me/poloniex/public.php";
+            _get_url = "https://anselmo.me/poloniex/public.php?command=returnTicker";
             _post_url = "http://anselmo.me/poloniex/tradingapi.php";
+
+            set_curl_get_options(_curl_get, _get_url);
+            set_curl_post_options(_curl_post);
+
             _market_fee = get_poloniex_taker_fee();
             populate_balances();
         } else if(_name == "foobase"){
@@ -70,7 +83,14 @@ public:
         } else {
             cout << "Unknown Exchange" << endl;
         }
+
+
     }
+    ~crypto_exchange(){
+        curl_easy_cleanup(_curl_get);
+        curl_easy_cleanup(_curl_post);
+    }
+
 
     string name() const {
         return _name;
@@ -240,7 +260,7 @@ private:
 
     void populate_gdax_trade_pairs(){
 
-        std::string http_data = curl_get(_get_url);
+        std::string http_data = curl_get(_curl_get);
         rapidjson::Document products;
         products.Parse(http_data.c_str());
 
@@ -292,6 +312,23 @@ private:
         }
     }
 
+    void set_curl_post_options(CURL* curl){
+        // Set remote URL.
+        curl_easy_setopt(_curl_post, CURLOPT_URL, _post_url.c_str());
+
+        // Don't bother trying IPv6, which would increase DNS resolution time.
+        curl_easy_setopt(_curl_post, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // Don't wait forever, time out after 15 seconds.
+        curl_easy_setopt(_curl_post, CURLOPT_TIMEOUT, 15L);
+
+
+        curl_easy_setopt(_curl_post, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(_curl_post, CURLOPT_SSL_VERIFYHOST, 0L);
+
+        curl_easy_setopt(_curl_post, CURLOPT_USERAGENT, "redshift crypto automated trader");
+    }
+
     std::string poloniex_post(std::string post_data) const {
         long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         post_data = post_data + "&nonce=" + to_string(now);
@@ -300,14 +337,10 @@ private:
         string signature = hmac_512_sign(api_secret, post_data);
 
         CURLcode result;
-        CURL* curl = curl_easy_init();
-
-        // Set remote URL.
-        curl_easy_setopt(curl, CURLOPT_URL, _post_url.c_str());
 
         //const char* c_post_data = post_data.c_str();
         cout << "Post Data: " << post_data << endl;
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data.c_str());
+        curl_easy_setopt(_curl_post, CURLOPT_POSTFIELDS, post_data.c_str());
         if(ARB_DEBUG){
             cout << "Sending Post Data: " << post_data << endl;
         }
@@ -316,39 +349,25 @@ private:
         chunk = curl_slist_append(chunk, api_key_header.c_str());
         string sig_header = "Sign:" + signature;
         chunk = curl_slist_append(chunk, sig_header.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+        curl_easy_setopt(_curl_post, CURLOPT_HTTPHEADER, chunk);
 
         if(ARB_DEBUG){
-            curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
+            curl_easy_setopt(_curl_post, CURLOPT_VERBOSE, 1);
         }
 
-        // Don't bother trying IPv6, which would increase DNS resolution time.
-        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-
-        // Don't wait forever, time out after 15 seconds.
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
-
-
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
-
         // Hook up data handling function.
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
+        curl_easy_setopt(_curl_post, CURLOPT_WRITEFUNCTION, callback);
 
         // Hook up data container (will be passed as the last parameter to the
         // callback handling function).  Can be any pointer type, since it will
         // internally be passed as a void pointer.
         const std::unique_ptr<std::string> http_data(new std::string());
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, http_data.get());
+        curl_easy_setopt(_curl_post, CURLOPT_WRITEDATA, http_data.get());
 
-        result = curl_easy_perform(curl);
+        result = curl_easy_perform(_curl_post);
 
         long http_code;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-
-        curl_easy_cleanup(curl);
+        curl_easy_getinfo(_curl_post, CURLINFO_RESPONSE_CODE, &http_code);
 
         if(result != CURLE_OK) {
             fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(result));
@@ -392,7 +411,7 @@ private:
 
     void populate_poloniex_trade_pairs(){
 
-        std::string http_data = curl_get(_get_url + "?command=returnTicker");
+        std::string http_data = curl_get(_curl_get);
         rapidjson::Document products;
         products.Parse(http_data.c_str());
 
