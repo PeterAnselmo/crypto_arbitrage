@@ -17,7 +17,7 @@
 #define ARB_ERR_INSUFFICIENT_FUNDS 30
 #define ARB_ERR_TRADE_NOT_EX 31
 
-bool ARB_DEBUG = false;
+constexpr bool ARB_DEBUG = false;
 
 using namespace std;
 using namespace CryptoPP;
@@ -112,11 +112,11 @@ std::vector<std::string> split(const std::string &text, char sep) {
 }
 
 //https://stackoverflow.com/questions/39721005/how-to-create-a-hmac-256-using-the-crypto-library#answer-39742465
-string hmac_512_sign(string key, string plain) {
+string hmac_512_sign(char* key, string plain) {
 
     string mac, encoded;
     try {
-		HMAC<SHA512 > hmac((byte*)key.c_str(), key.length());
+		HMAC<SHA512 > hmac((byte*)key, strlen(key));
 
 		StringSource(plain, true,
 			new HashFilter(hmac,

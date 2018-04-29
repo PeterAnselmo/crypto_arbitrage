@@ -84,11 +84,12 @@ public:
             cout << "Unknown Exchange" << endl;
         }
 
+        //post connections can't be left open during all the ticker polling
+        curl_easy_cleanup(_curl_post);
 
     }
     ~crypto_exchange(){
         curl_easy_cleanup(_curl_get);
-        curl_easy_cleanup(_curl_post);
     }
 
 
@@ -145,15 +146,15 @@ public:
         //Naieve O(n^3) terrible graph traversal
         for(const auto& tp1 : _pairs){
             for(const auto& tp2 : _pairs) {
-                if(tp1.buy != tp2.sell){
+                if(strcmp(tp1.buy, tp2.sell) != 0){
                     continue;
                 }
                 for(const auto& tp3 : _pairs){
-                    if(tp2.buy != tp3.sell){
+                    if(strcmp(tp2.buy, tp3.sell) != 0){
                         continue;
                     }
                     //make sure it's a triangle
-                    if(tp3.buy != tp1.sell) {
+                    if(strcmp(tp3.buy, tp1.sell) != 0){
                         continue;
                     }
 
@@ -218,6 +219,9 @@ public:
         }
         cout << endl;
 
+        _curl_post = curl_easy_init();
+        set_curl_post_options(_curl_post);
+
         double amount = _balances[trade_seq->trades.front().sell];
         int trade_num = 0;
         for(const auto& tp : trade_seq->trades){
@@ -227,6 +231,7 @@ public:
                 throw ARB_ERR_INSUFFICIENT_FUNDS;
             }
 
+            //last trade in a sequence can go on the books for execution anytime
             bool immediate_only = true;
             if(trade_num == 3){
                 immediate_only = false;
@@ -246,6 +251,8 @@ public:
                 throw ARB_ERR_BAD_OPTION;
             }
         }
+
+        curl_easy_cleanup(_curl_post);
 
         cout << "Balances After:";
         for(const auto& currency : trade_seq->currencies()){
@@ -294,15 +301,15 @@ private:
                      << " bid: " << book_data["bids"][0][0].GetString()
                      << " ask: " << book_data["asks"][0][0].GetString()<< endl;
                      */
-                tp.sell = listed_pair["base_currency"].GetString();
-                tp.buy = listed_pair["quote_currency"].GetString();
+                strcpy(tp.sell, listed_pair["base_currency"].GetString());
+                strcpy(tp.buy, listed_pair["quote_currency"].GetString());
                 tp.quote = stod(book_data["bids"][0][0].GetString());
                 tp.net = (1.0 - _market_fee) * tp.quote;
                 tp.action = "buy";
                 _pairs.push_back(tp);
 
-                tp.sell = listed_pair["quote_currency"].GetString();
-                tp.buy = listed_pair["base_currency"].GetString();
+                strcpy(tp.sell, listed_pair["quote_currency"].GetString());
+                strcpy(tp.buy, listed_pair["base_currency"].GetString());
                 tp.quote = stod(book_data["asks"][0][0].GetString());
                 tp.net = (1.0 - _market_fee) / tp.quote;
                 tp.action = "sell";
@@ -329,24 +336,26 @@ private:
         curl_easy_setopt(_curl_post, CURLOPT_USERAGENT, "redshift crypto automated trader");
     }
 
-    std::string poloniex_post(std::string post_data) const {
+    std::string poloniex_post(char* post_data) const {
+
+        char nonce[14];
         long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
-        post_data = post_data + "&nonce=" + to_string(now);
-        string api_secret = getenv("ARB_API_SECRET");
-        string api_key_header = getenv("ARB_API_KEY");
+        sprintf(nonce, "%li", now);
+
+        strcat(post_data, "&nonce=");
+        strcat(post_data, nonce);
+
+        char api_secret[129] = getenv("ARB_API_SECRET");
+        char api_key_header[40] = getenv("ARB_API_KEY");
         string signature = hmac_512_sign(api_secret, post_data);
 
         CURLcode result;
 
-        //const char* c_post_data = post_data.c_str();
-        cout << "Post Data: " << post_data << endl;
-        curl_easy_setopt(_curl_post, CURLOPT_POSTFIELDS, post_data.c_str());
-        if(ARB_DEBUG){
-            cout << "Sending Post Data: " << post_data << endl;
-        }
+        printf("Sending Post Data: %s\n", post_data);
+        curl_easy_setopt(_curl_post, CURLOPT_POSTFIELDS, post_data);
 
         struct curl_slist *chunk = NULL;
-        chunk = curl_slist_append(chunk, api_key_header.c_str());
+        chunk = curl_slist_append(chunk, api_key_header);
         string sig_header = "Sign:" + signature;
         chunk = curl_slist_append(chunk, sig_header.c_str());
         curl_easy_setopt(_curl_post, CURLOPT_HTTPHEADER, chunk);
@@ -385,7 +394,8 @@ private:
 
     double get_poloniex_taker_fee() const{
 
-        string post_data = "command=returnFeeInfo";
+        char post_data[120];
+        strcpy(post_data, "command=returnFeeInfo");
         string http_data = poloniex_post(post_data);
 
         rapidjson::Document fee_json;
@@ -397,7 +407,8 @@ private:
 
     void populate_poloniex_balances(){
 
-        string post_data = "command=returnBalances";
+        char post_data[120];
+        strcpy(post_data, "command=returnBalances");
         string http_data = poloniex_post(post_data);
 
         rapidjson::Document balance_json;
@@ -425,15 +436,15 @@ private:
 
             std::vector<std::string> pair_names = split(listed_pair.name.GetString(), '_');
 
-            tp.sell = pair_names[1];
-            tp.buy = pair_names[0];
+            strcpy(tp.sell, pair_names[1].c_str());
+            strcpy(tp.buy, pair_names[0].c_str());
             tp.quote = stod(listed_pair.value["highestBid"].GetString());
             tp.net = (1 - _market_fee) * tp.quote;
             tp.action = "sell";
             _pairs.push_back(tp);
 
-            tp.sell = pair_names[0];
-            tp.buy = pair_names[1];
+            strcpy(tp.sell, pair_names[0].c_str());
+            strcpy(tp.buy, pair_names[1].c_str());
             tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
             tp.net = (1 - _market_fee) / tp.quote;
             tp.action = "buy";
@@ -442,16 +453,24 @@ private:
     }
 
     //returns balance added to destination currency to use in forward chain
-    double poloniex_sell(string sell, string buy, double rate, double sell_amount, bool immediate_only){
+    double poloniex_sell(const char* sell, const char* buy, double rate, double sell_amount, bool immediate_only){
         rate -= 0.00000001; //round down to ensure sale executes
-        string post_data = "command=sell&currencyPair=" + buy + "_" + sell;
-        stringstream ss_rate, ss_amount;
-        ss_rate << fixed << setprecision(8) << rate;
-        post_data += "&rate=" + ss_rate.str();
-        ss_amount << fixed << setprecision(8) << sell_amount;
-        post_data += "&amount=" + ss_amount.str();
+        char rate_s[16];
+        sprintf(rate_s, "%.8f", rate);
+        char amount_s[16];
+        sprintf(amount_s, "%.8f", sell_amount);
+        char post_data[120];
+
+        strcpy(post_data, "command=sell&currencyPair=");
+        strcat(post_data, buy);
+        strcat(post_data, "_");
+        strcat(post_data, sell);
+        strcat(post_data, "&rate=");
+        strcat(post_data, rate_s);
+        strcat(post_data, "&amount=");
+        strcat(post_data, amount_s);
         if(immediate_only){
-            post_data += "&immediateOrCancel=1";
+            strcat(post_data, "&immediateOrCancel=1");
         }
 
         string http_data = poloniex_post(post_data);
@@ -478,17 +497,25 @@ private:
 
     }
 
-    double poloniex_buy(string sell, string buy, double rate, double sell_amount, bool immediate_only){
+    double poloniex_buy(const char* sell, const char* buy, double rate, double sell_amount, bool immediate_only){
         rate += 0.00000001; //round up to ensure sale executes
         double buy_amount = sell_amount / rate;
-        string post_data = "command=buy&currencyPair=" + sell + "_" + buy;
-        stringstream ss_rate, ss_amount;
-        ss_rate << fixed << setprecision(8) << rate;
-        post_data += "&rate=" + ss_rate.str();
-        ss_amount << fixed << setprecision(8) << buy_amount;
-        post_data += "&amount=" + ss_amount.str();
+
+        char rate_s[16];
+        sprintf(rate_s, "%.8f", rate);
+        char amount_s[16];
+        sprintf(amount_s, "%.8f", buy_amount);
+        char post_data[120];
+        strcpy(post_data, "command=buy&currencyPair=");
+        strcat(post_data, sell);
+        strcat(post_data, "_");
+        strcat(post_data, buy);
+        strcat(post_data, "&rate=");
+        strcat(post_data, rate_s);
+        strcat(post_data, "&amount=");
+        strcat(post_data, amount_s);
         if(immediate_only){
-            post_data += "&immediateOrCancel=1";
+            strcat(post_data, "&immediateOrCancel=1");
         }
 
         string http_data = poloniex_post(post_data);
