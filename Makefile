@@ -5,4 +5,4 @@ trade: trade.cpp arb_util.cpp crypto_exchange.cpp
 tests:
 	g++ test/main.cpp -std=c++11 -lcurl -lcryptopp -lgtest -lpthread -lm -o test/main_test
 benchmark: benchmark.cpp
-	g++ benchmark.cpp -std=c++11 -O3 -lcurl -lcryptopp -lpthread -lm -o benchmark
+	g++ benchmark.cpp -std=c++11 -O2 -lcurl -lcryptopp -lpthread -lm -o benchmark

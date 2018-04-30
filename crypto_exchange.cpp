@@ -428,6 +428,11 @@ private:
         products.Parse(http_data.c_str());
 
         trade_pair tp;
+        char curr_1[8];
+        char curr_2[8];
+        const char* market;
+        const char* it;
+        const char* sep_it;
         for(const auto& listed_pair : products.GetObject()){
             if(ARB_DEBUG){
                 cout << "Import Pair: " << listed_pair.name.GetString()
@@ -435,21 +440,34 @@ private:
                      << " ask: " << listed_pair.value["lowestAsk"].GetString() << endl;
             }
 
-            std::vector<std::string> pair_names = split(listed_pair.name.GetString(), '_');
 
-            strcpy(tp.sell, pair_names[1].c_str());
-            strcpy(tp.buy, pair_names[0].c_str());
+            //brittle, dangerous, fast way to split on known-delimiter market string
+            market = listed_pair.name.GetString();
+            it = sep_it = market;
+            while(it && *it){
+                if(*it == '_'){
+                    memcpy(curr_1, market, it-market);
+                    curr_1[it-market] = '\0';
+                    sep_it = it;
+                }
+                ++it;
+            }
+            memcpy(curr_2, sep_it+1, it - sep_it);
+
+            strcpy(tp.sell, curr_2);
+            strcpy(tp.buy, curr_1);
             tp.quote = stod(listed_pair.value["highestBid"].GetString());
             tp.net = (1 - _market_fee) * tp.quote;
             tp.action = 's';
             _pairs.push_back(tp);
 
-            strcpy(tp.sell, pair_names[0].c_str());
-            strcpy(tp.buy, pair_names[1].c_str());
+            strcpy(tp.sell, curr_1);
+            strcpy(tp.buy, curr_2);
             tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
             tp.net = (1 - _market_fee) / tp.quote;
             tp.action = 'b';
             _pairs.push_back(tp);
+
         }
     }
 
