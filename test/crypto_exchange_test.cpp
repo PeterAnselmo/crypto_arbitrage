@@ -64,7 +64,7 @@ TEST(CryptoExchange, PoloniexFailsUnderfundedSell){
     strcpy(tp.sell, "XMR");
     strcpy(tp.buy, "BTC");
     tp.quote = 0.030;
-    tp.action = "sell";
+    tp.action = 's';
 
     trade_seq ts;
     ts.trades.push_back(tp);
@@ -80,7 +80,7 @@ TEST(CryptoExchange, PoloniexFailsMispricedSell){
     strcpy(tp.sell, "XRP");
     strcpy(tp.buy, "BTC");
     tp.quote = 0.00010000;
-    tp.action = "sell";
+    tp.action = 's';
 
     trade_seq ts;
     ts.trades.push_back(tp);
@@ -96,7 +96,7 @@ TEST(CryptoExchange, PoloniexSellSucceeds){
     strcpy(tp.sell, "XRP");
     strcpy(tp.buy, "BTC");
     tp.quote = 0.00008996;
-    tp.action = "sell";
+    tp.action = 's';
 
     trade_seq ts;
     ts.trades.push_back(tp);
@@ -118,7 +118,7 @@ TEST(CryptoExchange, PoloniexFailsMispricedBuy){
     strcpy(tp.sell, "BTC");
     strcpy(tp.buy, "ZEC");
     tp.quote = 0.0300;
-    tp.action = "buy";
+    tp.action = 'b';
 
     trade_seq ts;
     ts.trades.push_back(tp);
@@ -140,7 +140,7 @@ TEST(CryptoExchange, PoloniexBuySucceeds){
     strcpy(tp.sell, "BTC");
     strcpy(tp.buy, "XMR");
     tp.quote = 0.0299;
-    tp.action = "buy";
+    tp.action = 'b';
 
     trade_seq ts;
     ts.trades.push_back(tp);

@@ -238,9 +238,9 @@ public:
             }
 
             if(_name == "poloniex" || _name == "poloniex-test"){
-                if(tp.action == "sell"){
+                if(tp.action == 's'){
                     amount = poloniex_sell(tp.sell, tp.buy, tp.quote, amount, immediate_only);
-                }else if(tp.action == "buy"){
+                }else if(tp.action == 'b'){
                     amount = poloniex_buy(tp.sell, tp.buy, tp.quote, amount, immediate_only);
                 } else {
                     cout << "Unknown action of trade pair encountered. Throwing Error." << endl;
@@ -305,14 +305,14 @@ private:
                 strcpy(tp.buy, listed_pair["quote_currency"].GetString());
                 tp.quote = stod(book_data["bids"][0][0].GetString());
                 tp.net = (1.0 - _market_fee) * tp.quote;
-                tp.action = "buy";
+                tp.action = 'b';
                 _pairs.push_back(tp);
 
                 strcpy(tp.sell, listed_pair["quote_currency"].GetString());
                 strcpy(tp.buy, listed_pair["base_currency"].GetString());
                 tp.quote = stod(book_data["asks"][0][0].GetString());
                 tp.net = (1.0 - _market_fee) / tp.quote;
-                tp.action = "sell";
+                tp.action = 's';
                 _pairs.push_back(tp);
             }
 
@@ -386,6 +386,7 @@ private:
             std::cout << "HTTP Response: " << *http_data.get() << std::endl;
         } else {
             std::cout << "Received " << http_code << " response code from " << _post_url << endl;
+            std::cout << "HTTP Response: " << *http_data.get() << std::endl;
             throw 30;
         }
 
@@ -440,14 +441,14 @@ private:
             strcpy(tp.buy, pair_names[0].c_str());
             tp.quote = stod(listed_pair.value["highestBid"].GetString());
             tp.net = (1 - _market_fee) * tp.quote;
-            tp.action = "sell";
+            tp.action = 's';
             _pairs.push_back(tp);
 
             strcpy(tp.sell, pair_names[0].c_str());
             strcpy(tp.buy, pair_names[1].c_str());
             tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
             tp.net = (1 - _market_fee) / tp.quote;
-            tp.action = "buy";
+            tp.action = 'b';
             _pairs.push_back(tp);
         }
     }

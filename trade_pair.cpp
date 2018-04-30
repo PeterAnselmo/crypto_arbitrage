@@ -8,7 +8,7 @@ struct trade_pair {
     char buy[8];
     double quote;
     double net;
-    string action;
+    char action; //'b' buy, 's', sell
 };
 
 #endif
