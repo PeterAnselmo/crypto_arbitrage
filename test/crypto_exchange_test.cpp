@@ -1,5 +1,5 @@
-#include "../crypto_exchange.cpp"
 #include "gtest/gtest.h"
+#include "../crypto_exchange.cpp"
 
 /*
 TEST(CryptoExchange, GDAXTradePairsRetrieved){
@@ -12,6 +12,14 @@ TEST(CryptoExchange, GDAXTradePairsRetrieved){
 
 }
 */
+TEST(CryptoExchange, PoloniexIDsArePopulated){
+    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+
+    poloniex->populate_trade_pairs();
+    ASSERT_EQ("BTC_DASH", poloniex->pair_string(24));
+    ASSERT_EQ("XMR_LTC", poloniex->pair_string(137));
+    ASSERT_EQ("USDT_BCH", poloniex->pair_string(191));
+}
 TEST(CryptoExchange, PoloniexFeeIsPopulated){
 
     crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
@@ -44,6 +52,27 @@ TEST(CryptoExchange, PoloniexTradePairsRetrieved){
     poloniex->populate_trade_pairs();
 
     ASSERT_EQ(198, poloniex->num_trade_pairs());
+}
+TEST(CryptoExchange, PoloniexWebSockerPairIsRetrieved){
+
+    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+
+    poloniex->populate_trade_pairs();
+
+    trade_pair tp1 = poloniex->get_pair(149, 'b');
+    ASSERT_FLOAT_EQ(706.76340485, tp1.quote);//lowest ask from initial http data
+    trade_pair tp2 = poloniex->get_pair(149, 's');
+    ASSERT_FLOAT_EQ(704.53848927, tp2.quote);//highest bid from initial http data
+
+    //test server will disconnect causing exception (but after data is populated)
+    ASSERT_ANY_THROW(poloniex->monitor_trades());
+
+    //[149,"655.85494783","656.20257851","653.00808262","-0.04198809","4070403.44163582","6117.26972201",0,"693.99999999","628.17135284"]
+    trade_pair tp3 = poloniex->get_pair(149, 'b');
+    ASSERT_FLOAT_EQ(656.20257851, tp3.quote);//lowest ask from initial http data
+    trade_pair tp4 = poloniex->get_pair(149, 's');
+    ASSERT_FLOAT_EQ(653.00808262, tp4.quote);//highest bid from initial http data
+        
 }
 TEST(CryptoExchange, PoloniexFindsProfitableTrade){
 

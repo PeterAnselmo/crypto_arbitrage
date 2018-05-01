@@ -22,9 +22,6 @@ int main(int argc, char* argv[]){
     double median;
     */
     while(!trade_found){
-        cout << "Data has been checked " << ++iterations << " times." << endl;
-        chrono::milliseconds duration(500);
-        this_thread::sleep_for( duration );
 
         //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
         poloniex->populate_trade_pairs();
@@ -32,6 +29,8 @@ int main(int argc, char* argv[]){
         poloniex->populate_trades();
 
         trade_seq* profitable_trade = poloniex->compare_trades();
+
+        poloniex->monitor_trades();
 
         /*
         std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
@@ -44,12 +43,14 @@ int main(int argc, char* argv[]){
         std::cout << "Median Time: = " << median <<std::endl;
         */
 
+                /*
         if(profitable_trade != nullptr){
             trade_found = true;
             poloniex->execute_trades(profitable_trade);
         }
 
         poloniex->clear_trades_and_pairs();
+        */
 
    }
 

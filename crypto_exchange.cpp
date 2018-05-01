@@ -11,8 +11,10 @@
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
+#include <cpprest/ws_client.h>
 
 using namespace std;
+using namespace web::websockets::client;
 
 struct trade_seq {
     vector<trade_pair> trades;
@@ -39,12 +41,14 @@ class crypto_exchange {
     string _name;
     string _get_url;
     string _post_url;
+    string _ws_url;
     double _market_fee;
     map<string, double> _balances;
     vector<trade_pair> _pairs;
     vector<trade_seq> _seqs;
     CURL* _curl_get;
     CURL* _curl_post;
+    array<string, 300> _pair_ids;
 
 public:
 
@@ -63,6 +67,7 @@ public:
         } else if(_name == "poloniex"){
             _get_url = "https://poloniex.com/public?command=returnTicker";
             _post_url = "https://poloniex.com/tradingApi";
+            _ws_url = "wss://api2.poloniex.com";
 
             set_curl_get_options(_curl_get, _get_url);
             set_curl_post_options(_curl_post);
@@ -72,14 +77,13 @@ public:
         } else if(_name == "poloniex-test"){
             _get_url = "https://anselmo.me/poloniex/public.php?command=returnTicker";
             _post_url = "http://anselmo.me/poloniex/tradingapi.php";
+            _ws_url = "ws://anselmo.me:8181";
 
             set_curl_get_options(_curl_get, _get_url);
             set_curl_post_options(_curl_post);
 
             _market_fee = get_poloniex_taker_fee();
             populate_balances();
-        } else if(_name == "foobase"){
-            _market_fee = 0.003;
         } else {
             cout << "Unknown Exchange" << endl;
         }
@@ -99,6 +103,18 @@ public:
     double market_fee() const {
         return _market_fee;
     }
+
+    string pair_string(int id) const{
+        return _pair_ids[id];
+    }
+
+    void print_ids() const{
+        int size = _pair_ids.size();
+        for(int i=0; i<size; ++i){
+            cout << "ID:" << i << _pair_ids[i] << endl;
+        }
+    }
+
     double balance(const string& currency) const{
         return _balances.at(currency);
     }
@@ -135,9 +151,53 @@ public:
         }
     }
 
+    trade_pair get_pair(int id, char action){
+        for(auto& tp : _pairs){
+            if(id == tp.exchange_id && action == tp.action){
+                return tp;
+            }
+        }
+    }
+
     int num_trade_pairs() const{
         return _pairs.size();
     }
+
+    int monitor_trades(){
+        websocket_client client;
+        //client.connect("ws://anselmo.me:8181").wait();
+        client.connect(_ws_url).wait();
+
+        string command = "{\"command\":\"subscribe\",\"channel\":1002}";
+
+        websocket_outgoing_message out_msg;
+        out_msg.set_utf8_message(command);
+        client.send(out_msg).wait();
+
+        bool first = true;
+        while(true){
+            client.receive().then([](websocket_incoming_message in_msg) {
+                return in_msg.extract_string();
+            }).then([&](string body) {
+                if(!first){ //first message back is just channel confirmation
+
+                    process_ticker_update(body);
+                    populate_trades();
+                    trade_seq* profitable_trade = compare_trades();
+
+                    if(profitable_trade != nullptr){
+                        return 0;
+                    }
+                } else {
+                    first = false;
+                }
+            }).wait();
+
+        }
+        return 1;
+
+    }
+
 
     int populate_trades(){
         int trades_added = 0;
@@ -194,7 +254,8 @@ public:
         for(auto& seq : _seqs){
             if(seq.net_gain > 1.0){
                 if(most_profitable == nullptr || seq.net_gain > most_profitable->net_gain){
-                    if(_balances.at(seq.trades.front().sell) < 0.000001){
+                    //currently ~$9 with BTC@$9,000
+                    if(_balances.at(seq.trades.front().sell) < 0.001){
                         cout << "Found profitable trade, but skipping due to no balance:" << endl;
                         seq.print_seq();
                         continue;
@@ -319,6 +380,28 @@ private:
         }
     }
 
+    void process_ticker_update(string message){
+        cout << "Processing Message:" << message << endl;
+        rapidjson::Document ticker_update;
+        ticker_update.Parse(message.c_str());
+        int pair_id = ticker_update[2][0].GetInt();
+        double ask = stod(ticker_update[2][2].GetString());
+        double bid = stod(ticker_update[2][3].GetString());
+
+        for(vector<trade_pair>::iterator it = _pairs.begin(); it != _pairs.end(); ++it){
+            if(it->exchange_id != pair_id){
+                continue;
+            }
+            if(it->action == 's'){
+                it->quote = bid;
+                it->net = (1 - _market_fee) * bid;
+            } else if(it->action == 'b'){
+                it->quote = ask;
+                it->net = (1 - _market_fee) / ask;
+            }
+        }
+    }
+
     void set_curl_post_options(CURL* curl){
         // Set remote URL.
         curl_easy_setopt(_curl_post, CURLOPT_URL, _post_url.c_str());
@@ -440,6 +523,7 @@ private:
                      << " ask: " << listed_pair.value["lowestAsk"].GetString() << endl;
             }
 
+	    _pair_ids[listed_pair.value["id"].GetInt()] = listed_pair.name.GetString();
 
             //brittle, dangerous, fast way to split on known-delimiter market string
             market = listed_pair.name.GetString();
@@ -456,6 +540,7 @@ private:
 
             strcpy(tp.sell, curr_2);
             strcpy(tp.buy, curr_1);
+            tp.exchange_id = listed_pair.value["id"].GetInt();
             tp.quote = stod(listed_pair.value["highestBid"].GetString());
             tp.net = (1 - _market_fee) * tp.quote;
             tp.action = 's';
@@ -463,6 +548,7 @@ private:
 
             strcpy(tp.sell, curr_1);
             strcpy(tp.buy, curr_2);
+            tp.exchange_id = listed_pair.value["id"].GetInt();
             tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
             tp.net = (1 - _market_fee) / tp.quote;
             tp.action = 'b';

@@ -4,6 +4,7 @@
 #include <string>
 
 struct trade_pair {
+    int exchange_id;
     char sell[8];
     char buy[8];
     double quote;
