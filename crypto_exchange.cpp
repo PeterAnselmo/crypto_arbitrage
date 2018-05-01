@@ -175,18 +175,30 @@ public:
         client.send(out_msg).wait();
 
         bool first = true;
+        bool data_stale = false;
         while(true){
             client.receive().then([](websocket_incoming_message in_msg) {
                 return in_msg.extract_string();
             }).then([&](string body) {
                 if(!first){ //first message back is just channel confirmation
+                    if(body == "[1010]"){//sometimes it just spits this back for a while
+                        cout << "Skipping Bad Data..." << endl;
+                        data_stale = true;
+                    } else {
+                        if(data_stale == true){//first time back in the loop
+                            populate_trade_pairs();
+                            data_stale = false;
+                        } else {
+                            process_ticker_update(body);
+                        }
+                        populate_trades();
+                        trade_seq* profitable_trade = compare_trades();
 
-                    process_ticker_update(body);
-                    populate_trades();
-                    trade_seq* profitable_trade = compare_trades();
+                        if(profitable_trade != nullptr){
+                            execute_trades(profitable_trade);
 
-                    if(profitable_trade != nullptr){
-                        return 0;
+                            throw 255;
+                        }
                     }
                 } else {
                     first = false;
@@ -220,7 +232,7 @@ public:
 
                     //optimization: don't copy the pair objects unless it's worth it
                     net = tp1.net * tp2.net * tp3.net;
-                    if(net < 1.0010){
+                    if(net < 1.0020){
                         continue;
                     }
 

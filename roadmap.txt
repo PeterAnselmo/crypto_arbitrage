@@ -1,0 +1,19 @@
+
+To-Do:
+-Add test websocket sequence of multiple feed updates, with one being profitable
+--will also help with benchmarking
+-Add configurable exchange url to be able to use multiple different ones in testing
+-Pre-compute amounts of all trades. Skip if below .00001
+--can then combine poloniex_sell() & poloniex_buy() 
+--will assist later with parallizing them)
+
+Optimization Ideas:
+-Short Circuit WS trade pair update - exit loop once two have been updated
+-skip compare_trade step - just use first profitable & funded
+-Convert JSON decode of WS ticker to custom string tokenization function (can even start at ",[" and stop after bid/ask)
+-Test different WS libraries. Can cpprest be removed and just use libwebsockets?
+-Send trade request in parallele with curl_multi.
+--Could then remove specification to be immediate (pros & cons to this)
+-Change currency strings to be ints (with lookup populated by GET returnTicker)
+-Skip output of balances before trade (will be at log) - Output after trade
+-
