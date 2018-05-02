@@ -52,7 +52,7 @@ class crypto_exchange {
 
 public:
 
-    crypto_exchange(string new_name){
+    crypto_exchange(string new_name, string new_get_url = "", string new_post_url = "", string new_ws_url = ""){
         _name = new_name;
 
         _curl_get = curl_easy_init();
@@ -65,9 +65,10 @@ public:
             _get_url = "http://anselmo.me/gdax/products.php";
             _market_fee = 0.0025;
         } else if(_name == "poloniex"){
-            _get_url = "https://poloniex.com/public?command=returnTicker";
-            _post_url = "https://poloniex.com/tradingApi";
-            _ws_url = "wss://api2.poloniex.com";
+
+            _get_url = (new_get_url != "") ? new_get_url : "https://poloniex.com/public?command=returnTicker";
+            _post_url = (new_post_url != "") ? new_post_url : "https://poloniex.com/tradingApi";
+            _ws_url = (new_ws_url != "") ? new_ws_url : "wss://api2.poloniex.com";
 
             set_curl_get_options(_curl_get, _get_url);
             set_curl_post_options(_curl_post);
@@ -191,8 +192,7 @@ public:
                         } else {
                             process_ticker_update(body);
                         }
-                        populate_trades();
-                        trade_seq* profitable_trade = compare_trades();
+                        trade_seq* profitable_trade = find_trade();
 
                         if(profitable_trade != nullptr){
                             execute_trades(profitable_trade);
@@ -211,9 +211,10 @@ public:
     }
 
 
-    int populate_trades(){
+    trade_seq* find_trade(){
         int trades_added = 0;
 
+        trade_seq* ts = nullptr;
         double net;
         //Naieve O(n^3) terrible graph traversal
         for(const auto& tp1 : _pairs){
@@ -230,25 +231,28 @@ public:
                         continue;
                     }
 
-                    //optimization: don't copy the pair objects unless it's worth it
                     net = tp1.net * tp2.net * tp3.net;
                     if(net < 1.0020){
                         continue;
                     }
-
-                    trade_seq ts;
-                    ts.trades.push_back(tp1);
-                    ts.trades.push_back(tp2);
-                    ts.trades.push_back(tp3);
-                    ts.net_gain = net;
-                    if(ARB_DEBUG){
-                        ts.print_seq();
+                    if(_balances.at(tp1.sell) < 0.001){
+                        cout << "Found profitable trade starting with " << tp1.sell << ", but skipping due to no balance:" << endl;
+                        continue;
                     }
-                    _seqs.push_back(ts);
-                    trades_added += 1;
+
+                    ts = new trade_seq;
+                    ts->trades.push_back(tp1);
+                    ts->trades.push_back(tp2);
+                    ts->trades.push_back(tp3);
+                    ts->net_gain = net;
+                    cout << "Profitable Trade Found: " << endl;
+                    ts->print_seq();
+
+                    return ts;
                 }
             }
         }
+        return ts;
     }
 
     void print_trade_seqs() const{
@@ -257,32 +261,6 @@ public:
         }
     }
 
-    trade_seq* compare_trades() {
-
-        trade_seq *most_profitable = nullptr;
-        int count = 0;
-        
-        vector<trade_seq>::iterator it;
-        for(auto& seq : _seqs){
-            if(seq.net_gain > 1.0){
-                if(most_profitable == nullptr || seq.net_gain > most_profitable->net_gain){
-                    //currently ~$9 with BTC@$9,000
-                    if(_balances.at(seq.trades.front().sell) < 0.001){
-                        cout << "Found profitable trade, but skipping due to no balance:" << endl;
-                        seq.print_seq();
-                        continue;
-                    }
-                    most_profitable = &seq;
-                }
-            }
-        }
-        
-        if(most_profitable != nullptr){
-            cout << "Profitable Trade Found: " << endl;
-            most_profitable->print_seq();
-        }
-        return most_profitable;
-    }
 
     void execute_trades(trade_seq* trade_seq){
 
@@ -400,6 +378,7 @@ private:
         double ask = stod(ticker_update[2][2].GetString());
         double bid = stod(ticker_update[2][3].GetString());
 
+        int trades_seen = 0;
         for(vector<trade_pair>::iterator it = _pairs.begin(); it != _pairs.end(); ++it){
             if(it->exchange_id != pair_id){
                 continue;
@@ -410,6 +389,10 @@ private:
             } else if(it->action == 'b'){
                 it->quote = ask;
                 it->net = (1 - _market_fee) / ask;
+            }
+            //should only be a single buy & sell for each market
+            if(++trades_seen == 2){
+                return;
             }
         }
     }

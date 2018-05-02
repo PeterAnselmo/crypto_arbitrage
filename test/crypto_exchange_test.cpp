@@ -25,7 +25,6 @@ TEST(CryptoExchange, PoloniexFeeIsPopulated){
     crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
     ASSERT_FLOAT_EQ(0.002500, poloniex->market_fee());
 }
-
 TEST(CryptoExchange, PoloniexBalancesArePopulated){
 
     crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
@@ -52,6 +51,27 @@ TEST(CryptoExchange, PoloniexTradePairsRetrieved){
     poloniex->populate_trade_pairs();
 
     ASSERT_EQ(198, poloniex->num_trade_pairs());
+}
+TEST(CryptoExchange, PoloniexTradePairsRetrieved2){
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public2.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8282");
+
+    poloniex->populate_trade_pairs();
+    trade_pair tp;
+
+    //"XMR_MAID":{"id":138,"last":"0.00159597","lowestAsk":"0.00163977","highestBid":"0.00159599"...
+    tp = poloniex->get_pair(138, 'b');
+    ASSERT_FLOAT_EQ(0.00163977, tp.quote);
+    tp = poloniex->get_pair(138, 's');
+    ASSERT_FLOAT_EQ(0.00159599, tp.quote);
+
+    //"BTC_GAS":{"id":198,"last":"0.00322453","lowestAsk":"0.00324822","highestBid":"0.00321199"...
+    tp = poloniex->get_pair(198, 'b');
+    ASSERT_FLOAT_EQ(0.00324822, tp.quote);
+    tp = poloniex->get_pair(198, 's');
+    ASSERT_FLOAT_EQ(0.00321199, tp.quote);
 }
 TEST(CryptoExchange, PoloniexWebSockerPairIsRetrieved){
 
@@ -80,8 +100,7 @@ TEST(CryptoExchange, PoloniexFindsProfitableTrade){
 
     poloniex->populate_trade_pairs();
 
-    poloniex->populate_trades();
-    trade_seq* profitable_trade = poloniex->compare_trades();
+    trade_seq* profitable_trade = poloniex->find_trade();
 
     ASSERT_FALSE(profitable_trade == nullptr);
 }
@@ -194,11 +213,54 @@ TEST(CryptoExchange, EntireSequenceExcecuted){
 
     ASSERT_NO_THROW({
         poloniex->populate_trade_pairs();
-        poloniex->populate_trades();
 
-        trade_seq* profitable_trade = poloniex->compare_trades();
+        trade_seq* profitable_trade = poloniex->find_trade();
         poloniex->execute_trades(profitable_trade);
     });
 
     ASSERT_FLOAT_EQ(target_balance, poloniex->balance("BTC"));
+}
+TEST(CryptoExchange, EntireWSequenceExecuted){
+
+    //Trade Seq: BTC>ETH b@0.07410000 net:13.46153846, ETH>GAS b@0.04385234 net:22.74679071, GAS>BTC s@0.00421197 net:0.00420144, Net Change:1.28650951
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public2.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi2.php",
+                                                    "ws://anselmo.me:8282");
+
+
+    poloniex->populate_trade_pairs();
+    trade_pair tp;
+
+    //"USDT_XMR":{"id":126,"last":"239.25328845","lowestAsk":"239.73639657","highestBid":"239.49254174"...
+    trade_pair tp1 = poloniex->get_pair(126, 'b');
+    ASSERT_FLOAT_EQ(239.73639657, tp1.quote);//lowest ask from initial http data
+    trade_pair tp2 = poloniex->get_pair(126, 's');
+    ASSERT_FLOAT_EQ(239.49254174, tp2.quote);//highest bid from initial http data
+
+    //"BTC_GAS":{"id":198,"last":"0.00322453","lowestAsk":"0.00324822","highestBid":"0.00321199"
+    tp = poloniex->get_pair(198, 'b');
+    ASSERT_FLOAT_EQ(0.00324822, tp.quote);
+    tp = poloniex->get_pair(198, 's');
+    ASSERT_FLOAT_EQ(0.00321199, tp.quote);
+
+    double balance_before = poloniex->balance("BTC");
+    double balance_expected_after = balance_before * 1.28650951;
+
+    //test server will disconnect causing exception (but after data is populated)
+    ASSERT_ANY_THROW(poloniex->monitor_trades());
+
+    //[1002,null,[126,"238.99999999","239.25328845","239.07169998","-0.00905593","549272.05317976","2348.39754632",0,"241.63999999","228.00000000"]])
+    trade_pair tp3 = poloniex->get_pair(126, 'b');
+    ASSERT_FLOAT_EQ(239.25328845, tp3.quote);//lowest ask from initial http data
+    trade_pair tp4 = poloniex->get_pair(126, 's');
+    ASSERT_FLOAT_EQ(239.07169998, tp4.quote);//highest bid from initial http data
+
+    //[1002,null,[198,"0.00322453","0.00424823","0.00421197","0.00586136","12.05556792","3795.09494089",0,"0.00325361","0.00307254"]]
+    tp = poloniex->get_pair(198, 'b');
+    ASSERT_FLOAT_EQ(0.00424823, tp.quote);
+    tp = poloniex->get_pair(198, 's');
+    ASSERT_FLOAT_EQ(0.00421197, tp.quote);
+
+    ASSERT_FLOAT_EQ(balance_expected_after, poloniex->balance("BTC"));
 }
