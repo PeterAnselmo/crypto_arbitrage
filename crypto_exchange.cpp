@@ -68,7 +68,6 @@ class crypto_exchange {
     map<string, double> _balances;
     vector<trade_pair> _pairs;
     CURL* _curl_get;
-    CURL* _curl_post;
     array<string, 300> _pair_ids;
     const char* _api_keys[3];
     const char* _api_secrets[3];
@@ -79,7 +78,6 @@ public:
         _name = new_name;
 
         _curl_get = curl_easy_init();
-        _curl_post = curl_easy_init();
 
         if(_name == "gdax"){
             _get_url = "https://api.gdax.com/products";
@@ -94,7 +92,6 @@ public:
             _ws_url = (new_ws_url != "") ? new_ws_url : "wss://api2.poloniex.com";
 
             set_curl_get_options(_curl_get, _get_url);
-            set_curl_post_options(_curl_post);
 
             _api_keys[0] = getenv("ARB_API_KEY_0");
             _api_secrets[0] = getenv("ARB_API_SECRET_0");
@@ -111,7 +108,6 @@ public:
         }
 
         //post connections can't be left open during all the ticker polling
-        curl_easy_cleanup(_curl_post);
 
     }
     ~crypto_exchange(){
@@ -200,7 +196,6 @@ public:
             client.receive().then([](websocket_incoming_message in_msg) {
                 return in_msg.extract_string();
             }).then([&](string body) {
-                cout << body << endl;
                 if(body == "[1002,1]" || body == "[1010]"){//sometimes it just spits this back for a while
                     cout << "Skipping Bad Data..." << endl;
                     data_stale = true;
@@ -270,29 +265,192 @@ public:
     }
 
     void execute_trades(trade_seq* trade_seq){
-
-        _curl_post = curl_easy_init();
-        set_curl_post_options(_curl_post);
-
         int num_trades = trade_seq->trades.size();
+
+        CURL* handles[num_trades];
+        CURLM* multi_handle;
+        CURLMsg *msg; /* for picking up messages with the transfer status */ 
+        int msgs_left; /* how many messages are left */ 
+
+        int curl_still_running;
+
+        string* http_data[num_trades];
+        long http_code[num_trades];
+
+        const std::unique_ptr<std::string> http_data1(new std::string());
+        const std::unique_ptr<std::string> http_data2(new std::string());
+        const std::unique_ptr<std::string> http_data3(new std::string());
+        for(int i=0; i<num_trades; ++i){
+            handles[i] = curl_easy_init();
+            //curl_easy_setopt(handles[i], CURLOPT_DEBUGFUNCTION, my_trace);
+        }
+
         int trade_num = 0;
         for(const auto& tp : trade_seq->trades){
 
             if(_name == "poloniex"){
-                poloniex_trade(trade_num, tp.sell, tp.buy, tp.exchange_id, tp.action, tp.quote, trade_seq->amounts[trade_num]);
+                poloniex_prepare_trade(handles[trade_num], trade_num, tp.sell, tp.buy, tp.exchange_id, tp.action, tp.quote, trade_seq->amounts[trade_num]);
             } else {
                 cout << "trade requested on unsupported exchange. Throwing Error." << endl;
                 throw ARB_ERR_BAD_OPTION;
             }
+            ++trade_num;
         }
+
+        multi_handle = curl_multi_init();
+        for(int i=0; i<num_trades; ++i){
+            if(i == 0){
+                curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data1.get());
+            }
+            if(i == 1){
+                curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data2.get());
+            }
+            if(i == 2){
+                curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data3.get());
+            }
+            curl_multi_add_handle(multi_handle, handles[i]);
+        }
+
+        /* we start some action by calling perform right away */ 
+        curl_multi_perform(multi_handle, &curl_still_running);
+
+        do {
+            struct timeval timeout;
+            int rc; /* select() return code */ 
+            CURLMcode mc; /* curl_multi_fdset() return code */ 
+
+            fd_set fdread;
+            fd_set fdwrite;
+            fd_set fdexcep;
+            int maxfd = -1;
+
+            long curl_timeo = 20000;
+
+            FD_ZERO(&fdread);
+            FD_ZERO(&fdwrite);
+            FD_ZERO(&fdexcep);
+
+            /* set a suitable timeout to play around with */ 
+            timeout.tv_sec = 1;
+            timeout.tv_usec = 0;
+
+            curl_multi_timeout(multi_handle, &curl_timeo);
+            if(curl_timeo >= 0) {
+                timeout.tv_sec = curl_timeo / 1000;
+                if(timeout.tv_sec > 1)
+                    timeout.tv_sec = 1;
+                else
+                    timeout.tv_usec = (curl_timeo % 1000) * 1000;
+            }
+
+            /* get file descriptors from the transfers */ 
+            mc = curl_multi_fdset(multi_handle, &fdread, &fdwrite, &fdexcep, &maxfd);
+
+            if(mc != CURLM_OK) {
+                fprintf(stderr, "curl_multi_fdset() failed, code %d.\n", mc);
+                break;
+            }
+
+            /* On success the value of maxfd is guaranteed to be >= -1. We call
+               select(maxfd + 1, ...); specially in case of (maxfd == -1) there are
+               no fds ready yet so we call select(0, ...) --or Sleep() on Windows--
+               to sleep 100ms, which is the minimum suggested value in the
+               curl_multi_fdset() doc. */ 
+
+            if(maxfd == -1) {
+                // Portable sleep for platforms other than Windows.
+                struct timeval wait = { 0, 100 * 1000 }; // 100ms
+                rc = select(0, NULL, NULL, NULL, &wait);
+            } else {
+                // Note that on some platforms 'timeout' may be modified by select().
+                //   If you need access to the original value save a copy beforehand.
+                rc = select(maxfd + 1, &fdread, &fdwrite, &fdexcep, &timeout);
+            }
+
+            switch(rc) {
+                case -1:
+                    // select error
+                    break;
+                case 0: // timeout
+                default: // action
+                    curl_multi_perform(multi_handle, &curl_still_running);
+                    break;
+            }
+        } while(curl_still_running);
+
+        /* See how the transfers went */ 
+        while((msg = curl_multi_info_read(multi_handle, &msgs_left))) {
+            if(msg->msg == CURLMSG_DONE) {
+                int idx, found = 0;
+
+                /* Find out which handle this message is about */ 
+                for(idx = 0; idx<num_trades; ++idx) {
+                    found = (msg->easy_handle == handles[idx]);
+                    if(found)
+                        break;
+                }
+
+                printf("CURL Handle %i finished with status %d\n", idx, msg->data.result);
+            }
+        }
+
+        std::cout << "HTTP Response 1: " << *http_data1.get() << std::endl;
+        std::cout << "HTTP Response 2: " << *http_data2.get() << std::endl;
+        std::cout << "HTTP Response 3: " << *http_data3.get() << std::endl;
+
+        /* Free the CURL handles */ 
+        for(int i = 0; i<num_trades; i++){
+
+            /*
+               curl_easy_getinfo(handles[i], CURLINFO_RESPONSE_CODE, http_code[i]);
+               cout << "code" << http_code[i] << endl;
+               if (http_code[i] == 200) {
+               std::cout << "HTTP Response: " << *http_data[i] << std::endl;
+               } else {
+               const std::unique_ptr<std::string> last_url;
+               curl_easy_getinfo(handles[i], CURLINFO_EFFECTIVE_URL, &last_url);
+               std::cout << "Received " << http_code[i] << " response code from " << last_url << endl;
+               std::cout << "HTTP Response: " << *http_data[i] << std::endl;
+               throw 30;
+               }
+               */
+            curl_easy_cleanup(handles[i]);
+        }
+        curl_multi_cleanup(multi_handle);
+
+        //Gather and execute handles
+        /*
+        //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
+        rapidjson::Document trade_result;
+        trade_result.Parse(http_data.c_str());
+
+        double traded_amount = 0;
+        double traded_total = 0;
+        if(trade_result["resultingTrades"].Empty()){
+        cout << "No Resulting Trades executed. Throwing Error." << endl;
+        throw ARB_ERR_TRADE_NOT_EX;
+        } else {
+        //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
+        for(const auto& trade : trade_result["resultingTrades"].GetArray()){
+        traded_amount += stod(trade["amount"].GetString());
+        traded_total += stod(trade["total"].GetString());
+        }
+        if(action == 'b'){
+        _balances[buy] += traded_amount * (1 - _market_fee);
+        _balances[sell] -= traded_total;
+        }else if(action == 's'){
+        _balances[sell] -= traded_amount;
+        _balances[buy] += traded_total * (1 - _market_fee);
+        }
+        }
+
         cout << "Balances After:";
         for(const auto& currency : trade_seq->currencies()){
-            cout << " " << currency << ":" << _balances[currency];
+        cout << " " << currency << ":" << _balances[currency];
         }
         cout << endl;
 
-        curl_easy_cleanup(_curl_post);
-        ++trade_num;
+*/
 
     }
 
@@ -415,25 +573,7 @@ private:
         }
     }
 
-    void set_curl_post_options(CURL* curl){
-        // Set remote URL.
-        curl_easy_setopt(_curl_post, CURLOPT_URL, _post_url.c_str());
-
-        // Don't bother trying IPv6, which would increase DNS resolution time.
-        curl_easy_setopt(_curl_post, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-
-        // Don't wait forever, time out after 15 seconds.
-        curl_easy_setopt(_curl_post, CURLOPT_TIMEOUT, 15L);
-
-
-        curl_easy_setopt(_curl_post, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(_curl_post, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        curl_easy_setopt(_curl_post, CURLOPT_USERAGENT, "redshift crypto automated trader");
-    }
-
-    std::string poloniex_post(char* post_data, int seq_num = 0) const {
-
+    void set_curl_post_options(CURL* curl, char* post_data, int api_num = 0){
         char nonce[14];
         long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         sprintf(nonce, "%li", now);
@@ -442,38 +582,58 @@ private:
         strcat(post_data, nonce);
 
         char api_key_header[40] = "Key:";
-        strcat(api_key_header, _api_keys[seq_num]);
+        strcat(api_key_header, _api_keys[api_num]);
 
-        string signature = hmac_512_sign(_api_secrets[seq_num], post_data);
-
-        CURLcode result;
+        string signature = hmac_512_sign(_api_secrets[api_num], post_data);
 
         printf("Sending Post Data: %s\n", post_data);
-        curl_easy_setopt(_curl_post, CURLOPT_POSTFIELDS, post_data);
+        curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, post_data);
 
         struct curl_slist *chunk = NULL;
         chunk = curl_slist_append(chunk, api_key_header);
         string sig_header = "Sign:" + signature;
         chunk = curl_slist_append(chunk, sig_header.c_str());
-        curl_easy_setopt(_curl_post, CURLOPT_HTTPHEADER, chunk);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
 
         if(ARB_DEBUG){
-            curl_easy_setopt(_curl_post, CURLOPT_VERBOSE, 1);
+            curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
         }
 
         // Hook up data handling function.
-        curl_easy_setopt(_curl_post, CURLOPT_WRITEFUNCTION, callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
+        // Set remote URL.
+        curl_easy_setopt(curl, CURLOPT_URL, _post_url.c_str());
+
+        // Don't bother trying IPv6, which would increase DNS resolution time.
+        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // Don't wait forever, time out after 15 seconds.
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+
+
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
+    }
+
+    void poloniex_mulit_post(char* post_data, int seq_num){
+
+    }
+
+    string poloniex_single_post(CURL* curl) const {
 
         // Hook up data container (will be passed as the last parameter to the
         // callback handling function).  Can be any pointer type, since it will
         // internally be passed as a void pointer.
         const std::unique_ptr<std::string> http_data(new std::string());
-        curl_easy_setopt(_curl_post, CURLOPT_WRITEDATA, http_data.get());
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, http_data.get());
 
-        result = curl_easy_perform(_curl_post);
+        CURLcode result;
+        result = curl_easy_perform(curl);
 
         long http_code;
-        curl_easy_getinfo(_curl_post, CURLINFO_RESPONSE_CODE, &http_code);
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
 
         if(result != CURLE_OK) {
             fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(result));
@@ -490,11 +650,15 @@ private:
         return *http_data;
     }
 
-    double get_poloniex_taker_fee() const{
+    double get_poloniex_taker_fee() {
 
         char post_data[120];
         strcpy(post_data, "command=returnFeeInfo");
-        string http_data = poloniex_post(post_data);
+        
+        CURL* curl = curl_easy_init();
+		set_curl_post_options(curl, post_data);
+        string http_data = poloniex_single_post(curl);
+		curl_easy_cleanup(curl);
 
         rapidjson::Document fee_json;
         fee_json.Parse(http_data.c_str());
@@ -507,7 +671,11 @@ private:
 
         char post_data[120];
         strcpy(post_data, "command=returnBalances");
-        string http_data = poloniex_post(post_data);
+
+        CURL* curl = curl_easy_init();
+		set_curl_post_options(curl, post_data);
+        string http_data = poloniex_single_post(curl);
+		curl_easy_cleanup(curl);
 
         rapidjson::Document balance_json;
         balance_json.Parse(http_data.c_str());
@@ -572,7 +740,7 @@ private:
     }
 
     //returns balance added to destination currency to use in forward chain
-    void poloniex_trade(int seq_num, const char* sell, const char* buy, int pair_id, char action, double rate, double amount, bool immediate_only = false){
+    void poloniex_prepare_trade(CURL* curl, int seq_num, const char* sell, const char* buy, int pair_id, char action, double rate, double amount, bool immediate_only = false){
         cout << "EXECUTING TRADE " << seq_num << ": " << sell << ">" << buy << " quote:" << fixed << setprecision(8) << rate << " amount:" << amount << "(" << action << ")" << endl;
         //round to improve odds of sale executing
         if(action == 'b'){
@@ -581,7 +749,6 @@ private:
         }else if(action == 's'){
             rate -= 0.00000001;
         }
-
 
         char rate_s[16];
         sprintf(rate_s, "%.8f", rate);
@@ -605,31 +772,7 @@ private:
             strcat(post_data, "&immediateOrCancel=1");
         }
 
-        string http_data = poloniex_post(post_data, seq_num);
-
-        //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
-        rapidjson::Document trade_result;
-        trade_result.Parse(http_data.c_str());
-
-        double traded_amount = 0;
-        double traded_total = 0;
-        if(trade_result["resultingTrades"].Empty()){
-            cout << "No Resulting Trades executed. Throwing Error." << endl;
-            throw ARB_ERR_TRADE_NOT_EX;
-        } else {
-            //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
-            for(const auto& trade : trade_result["resultingTrades"].GetArray()){
-                traded_amount += stod(trade["amount"].GetString());
-                traded_total += stod(trade["total"].GetString());
-            }
-            if(action == 'b'){
-                _balances[buy] += traded_amount * (1 - _market_fee);
-                _balances[sell] -= traded_total;
-            }else if(action == 's'){
-                _balances[sell] -= traded_amount;
-                _balances[buy] += traded_total * (1 - _market_fee);
-            }
-        }
+        set_curl_post_options(curl, post_data, seq_num);
     }
 
 };
