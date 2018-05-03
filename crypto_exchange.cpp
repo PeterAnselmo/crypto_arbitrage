@@ -274,15 +274,12 @@ public:
 
         int curl_still_running;
 
-        string* http_data[num_trades];
         long http_code[num_trades];
+        std::unique_ptr<std::string> http_data[num_trades];
 
-        const std::unique_ptr<std::string> http_data1(new std::string());
-        const std::unique_ptr<std::string> http_data2(new std::string());
-        const std::unique_ptr<std::string> http_data3(new std::string());
         for(int i=0; i<num_trades; ++i){
             handles[i] = curl_easy_init();
-            //curl_easy_setopt(handles[i], CURLOPT_DEBUGFUNCTION, my_trace);
+            http_data[i] = std::unique_ptr<std::string>(new string());
         }
 
         int trade_num = 0;
@@ -299,15 +296,7 @@ public:
 
         multi_handle = curl_multi_init();
         for(int i=0; i<num_trades; ++i){
-            if(i == 0){
-                curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data1.get());
-            }
-            if(i == 1){
-                curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data2.get());
-            }
-            if(i == 2){
-                curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data3.get());
-            }
+            curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data[i].get());
             curl_multi_add_handle(multi_handle, handles[i]);
         }
 
@@ -390,16 +379,13 @@ public:
                         break;
                 }
 
-                printf("CURL Handle %i finished with status %d\n", idx, msg->data.result);
+                //printf("CURL Handle %i finished with status %d\n", idx, msg->data.result);
             }
         }
 
-        std::cout << "HTTP Response 1: " << *http_data1.get() << std::endl;
-        std::cout << "HTTP Response 2: " << *http_data2.get() << std::endl;
-        std::cout << "HTTP Response 3: " << *http_data3.get() << std::endl;
-
         /* Free the CURL handles */ 
         for(int i = 0; i<num_trades; i++){
+            std::cout << "HTTP Response " << i << ": " << *http_data[i].get() << std::endl;
 
             /*
                curl_easy_getinfo(handles[i], CURLINFO_RESPONSE_CODE, http_code[i]);

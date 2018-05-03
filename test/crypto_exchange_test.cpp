@@ -147,6 +147,7 @@ TEST(CryptoExchange, PoloniexFailsMispricedSell){
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
 
+	poloniex->populate_trade_pairs();
     trade_pair tp;
     strcpy(tp.sell, "XRP");
     strcpy(tp.buy, "BTC");
