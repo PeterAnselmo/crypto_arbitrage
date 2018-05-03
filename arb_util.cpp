@@ -16,6 +16,7 @@
 #define ARB_ERR_BAD_OPTION 20
 #define ARB_ERR_INSUFFICIENT_FUNDS 30
 #define ARB_ERR_TRADE_NOT_EX 31
+#define ARB_ERR_UNEXPECTED_STR 41
 
 constexpr bool ARB_DEBUG = false;
 
@@ -112,7 +113,7 @@ std::vector<std::string> split(const std::string &text, char sep) {
 }
 
 //https://stackoverflow.com/questions/39721005/how-to-create-a-hmac-256-using-the-crypto-library#answer-39742465
-string hmac_512_sign(char* key, string plain) {
+string hmac_512_sign(const char* key, string plain) {
 
     string mac, encoded;
     try {

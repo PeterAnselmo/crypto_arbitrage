@@ -13,7 +13,10 @@ TEST(CryptoExchange, GDAXTradePairsRetrieved){
 }
 */
 TEST(CryptoExchange, PoloniexIDsArePopulated){
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
     poloniex->populate_trade_pairs();
     ASSERT_EQ("BTC_DASH", poloniex->pair_string(24));
@@ -22,12 +25,18 @@ TEST(CryptoExchange, PoloniexIDsArePopulated){
 }
 TEST(CryptoExchange, PoloniexFeeIsPopulated){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
     ASSERT_FLOAT_EQ(0.002500, poloniex->market_fee());
 }
 TEST(CryptoExchange, PoloniexBalancesArePopulated){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
     /* can't check before, added to constructor
     ASSERT_FLOAT_EQ(0.0, poloniex->balance("BTC"));
@@ -39,12 +48,14 @@ TEST(CryptoExchange, PoloniexBalancesArePopulated){
     ASSERT_FLOAT_EQ(1.000, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(2.500, poloniex->balance("BCH"));
     ASSERT_FLOAT_EQ(3.250, poloniex->balance("LTC"));
-    ASSERT_FLOAT_EQ(0.000, poloniex->balance("ETH"));
     ASSERT_FLOAT_EQ(0.000, poloniex->balance("XMR"));
 }
 TEST(CryptoExchange, PoloniexTradePairsRetrieved){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
     ASSERT_EQ(0, poloniex->num_trade_pairs());
 
@@ -75,7 +86,10 @@ TEST(CryptoExchange, PoloniexTradePairsRetrieved2){
 }
 TEST(CryptoExchange, PoloniexWebSockerPairIsRetrieved){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
     poloniex->populate_trade_pairs();
 
@@ -96,7 +110,10 @@ TEST(CryptoExchange, PoloniexWebSockerPairIsRetrieved){
 }
 TEST(CryptoExchange, PoloniexFindsProfitableTrade){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
     poloniex->populate_trade_pairs();
 
@@ -106,7 +123,10 @@ TEST(CryptoExchange, PoloniexFindsProfitableTrade){
 }
 TEST(CryptoExchange, PoloniexFailsUnderfundedSell){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
     trade_pair tp;
     strcpy(tp.sell, "XMR");
@@ -114,40 +134,49 @@ TEST(CryptoExchange, PoloniexFailsUnderfundedSell){
     tp.quote = 0.030;
     tp.action = 's';
 
-    trade_seq ts;
-    ts.trades.push_back(tp);
+    float amount = poloniex->balance("XMR") /tp.quote;
 
-    //TODO: Make this exception expectation more specific
-    ASSERT_ANY_THROW(poloniex->execute_trades(&ts));
+    trade_seq ts;
+
+    ASSERT_FALSE(ts.add_pair(tp, amount));
 }
 TEST(CryptoExchange, PoloniexFailsMispricedSell){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
     trade_pair tp;
     strcpy(tp.sell, "XRP");
     strcpy(tp.buy, "BTC");
+    tp.exchange_id = 117;
     tp.quote = 0.00010000;
     tp.action = 's';
 
     trade_seq ts;
-    ts.trades.push_back(tp);
+    ts.add_pair(tp, poloniex->balance("XRP"));
 
     //TODO: Make this exception expectation more specific
     ASSERT_ANY_THROW(poloniex->execute_trades(&ts));
 }
 TEST(CryptoExchange, PoloniexSellSucceeds){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
+    poloniex->populate_trade_pairs();
     trade_pair tp;
     strcpy(tp.sell, "XRP");
     strcpy(tp.buy, "BTC");
+    tp.exchange_id = 117;
     tp.quote = 0.00008996;
     tp.action = 's';
 
     trade_seq ts;
-    ts.trades.push_back(tp);
+    ts.add_pair(tp, poloniex->balance("XRP"));
 
     ASSERT_FLOAT_EQ(50.0, poloniex->balance("XRP"));
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
@@ -160,16 +189,21 @@ TEST(CryptoExchange, PoloniexSellSucceeds){
 }
 TEST(CryptoExchange, PoloniexFailsMispricedBuy){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
+    poloniex->populate_trade_pairs();
     trade_pair tp;
     strcpy(tp.sell, "BTC");
     strcpy(tp.buy, "ZEC");
+    tp.exchange_id=178;
     tp.quote = 0.0300;
     tp.action = 'b';
 
     trade_seq ts;
-    ts.trades.push_back(tp);
+    ts.add_pair(tp, 1.0);
 
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(0, poloniex->balance("ZEC"));
@@ -182,16 +216,21 @@ TEST(CryptoExchange, PoloniexFailsMispricedBuy){
 }
 TEST(CryptoExchange, PoloniexBuySucceeds){
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
 
+    poloniex->populate_trade_pairs();
     trade_pair tp;
     strcpy(tp.sell, "BTC");
     strcpy(tp.buy, "XMR");
+    tp.exchange_id = 114;
     tp.quote = 0.0299;
     tp.action = 'b';
 
     trade_seq ts;
-    ts.trades.push_back(tp);
+    ts.add_pair(tp, 1.0);
 
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(0, poloniex->balance("XMR"));
@@ -206,7 +245,11 @@ TEST(CryptoExchange, PoloniexBuySucceeds){
 TEST(CryptoExchange, EntireSequenceExcecuted){
     //Trade Seq: ETH>BTC sell@0.07401501 net:0.07382997, BTC>BCH buy@0.15167712 net:6.57646990, BCH>ETH sell@2.25217676 net:2.24654627, Net Change:1.09078932
 
-    crypto_exchange* poloniex = new crypto_exchange("poloniex-test");
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "ws://anselmo.me:8181");
+
 
     float starting_balance = poloniex->balance("BTC");
     float target_balance = starting_balance * 1.09078932;

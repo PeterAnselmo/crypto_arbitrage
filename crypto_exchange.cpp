@@ -18,6 +18,7 @@ using namespace web::websockets::client;
 
 struct trade_seq {
     vector<trade_pair> trades;
+    vector<float> amounts;
     double net_gain = 1;
 
     vector<string> currencies() const{
@@ -26,6 +27,27 @@ struct trade_seq {
             _currencies.push_back(tp.sell);
         }
         return _currencies;
+    }
+    bool add_pair(trade_pair new_trade_pair, float amount){
+        
+        if(amount < 0.001){
+            cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
+                 << amount << "@" << new_trade_pair.quote << " has Insufficient starting balance. Invalidating." << endl;
+            return false;
+        }
+        if(new_trade_pair.action == 'b'){//have sell amount, convert for buy amount
+            amount = amount / new_trade_pair.quote;
+        }
+        float total = amount * new_trade_pair.quote;
+        if(total < 0.0001){
+            cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
+                 << amount << "@" << new_trade_pair.quote << " would have total < 0.0001. Invalidating." << endl;
+            return false;
+        }
+
+        trades.push_back(new_trade_pair);
+        amounts.push_back(amount);
+        return true;
     }
 
     void print_seq() const {
@@ -45,10 +67,11 @@ class crypto_exchange {
     double _market_fee;
     map<string, double> _balances;
     vector<trade_pair> _pairs;
-    vector<trade_seq> _seqs;
     CURL* _curl_get;
     CURL* _curl_post;
     array<string, 300> _pair_ids;
+    const char* _api_keys[3];
+    const char* _api_secrets[3];
 
 public:
 
@@ -73,15 +96,13 @@ public:
             set_curl_get_options(_curl_get, _get_url);
             set_curl_post_options(_curl_post);
 
-            _market_fee = get_poloniex_taker_fee();
-            populate_balances();
-        } else if(_name == "poloniex-test"){
-            _get_url = "https://anselmo.me/poloniex/public.php?command=returnTicker";
-            _post_url = "http://anselmo.me/poloniex/tradingapi.php";
-            _ws_url = "ws://anselmo.me:8181";
+            _api_keys[0] = getenv("ARB_API_KEY_0");
+            _api_secrets[0] = getenv("ARB_API_SECRET_0");
+            _api_keys[1] = getenv("ARB_API_KEY_1");
+            _api_secrets[1] = getenv("ARB_API_SECRET_1");
+            _api_keys[2] = getenv("ARB_API_KEY_2");
+            _api_secrets[2] = getenv("ARB_API_SECRET_2");
 
-            set_curl_get_options(_curl_get, _get_url);
-            set_curl_post_options(_curl_post);
 
             _market_fee = get_poloniex_taker_fee();
             populate_balances();
@@ -121,7 +142,7 @@ public:
     }
 
     void populate_balances(){
-        if(_name == "poloniex" || _name == "poloniex-test"){
+        if(_name == "poloniex"){
             populate_poloniex_balances();
         }
     }
@@ -133,7 +154,7 @@ public:
     }
 
     void populate_trade_pairs(){
-        if(_name == "poloniex" || _name == "poloniex-test"){
+        if(_name == "poloniex"){
             return populate_poloniex_trade_pairs();
         }else if(_name == "gdax" || _name == "gdax-test"){
             return populate_gdax_trade_pairs();
@@ -141,7 +162,6 @@ public:
     }
 
     void clear_trades_and_pairs(){
-        _seqs.clear();
         _pairs.clear();
 
     }
@@ -175,33 +195,28 @@ public:
         out_msg.set_utf8_message(command);
         client.send(out_msg).wait();
 
-        bool first = true;
-        bool data_stale = false;
+        bool data_stale = true;
         while(true){
             client.receive().then([](websocket_incoming_message in_msg) {
                 return in_msg.extract_string();
             }).then([&](string body) {
-                if(!first){ //first message back is just channel confirmation
-                    if(body == "[1010]"){//sometimes it just spits this back for a while
-                        cout << "Skipping Bad Data..." << endl;
-                        data_stale = true;
-                    } else {
-                        if(data_stale == true){//first time back in the loop
-                            populate_trade_pairs();
-                            data_stale = false;
-                        } else {
-                            process_ticker_update(body);
-                        }
-                        trade_seq* profitable_trade = find_trade();
-
-                        if(profitable_trade != nullptr){
-                            execute_trades(profitable_trade);
-
-                            throw 255;
-                        }
-                    }
+                cout << body << endl;
+                if(body == "[1002,1]" || body == "[1010]"){//sometimes it just spits this back for a while
+                    cout << "Skipping Bad Data..." << endl;
+                    data_stale = true;
                 } else {
-                    first = false;
+                    if(data_stale == true){//first time back in the loop
+                        populate_trade_pairs();
+                        data_stale = false;
+                    }
+                    process_ticker_update(body);
+                    trade_seq* profitable_trade = find_trade();
+
+                    if(profitable_trade != nullptr){
+                        execute_trades(profitable_trade);
+
+                        throw 255;
+                    }
                 }
             }).wait();
 
@@ -216,7 +231,6 @@ public:
 
         trade_seq* ts = nullptr;
         double net;
-        //Naieve O(n^3) terrible graph traversal
         for(const auto& tp1 : _pairs){
             for(const auto& tp2 : _pairs) {
                 if(strcmp(tp1.buy, tp2.sell) != 0){
@@ -235,82 +249,50 @@ public:
                     if(net < 1.0020){
                         continue;
                     }
-                    if(_balances.at(tp1.sell) < 0.001){
-                        cout << "Found profitable trade starting with " << tp1.sell << ", but skipping due to no balance:" << endl;
-                        continue;
-                    }
+                    cout << "Found Potential Trade: " << tp1.sell << ">" << tp2.sell << ">" << tp3.sell << ">" << tp3.buy << fixed << setprecision(8) << " net:" << net << ", " << endl;
 
                     ts = new trade_seq;
-                    ts->trades.push_back(tp1);
-                    ts->trades.push_back(tp2);
-                    ts->trades.push_back(tp3);
-                    ts->net_gain = net;
-                    cout << "Profitable Trade Found: " << endl;
-                    ts->print_seq();
-
-                    return ts;
+                    if(ts->add_pair(tp1, _balances[tp1.sell])){
+                        if(ts->add_pair(tp2, _balances[tp2.sell])){
+                            if(ts->add_pair(tp3, _balances[tp3.sell])){
+                                ts->net_gain = net;
+                                cout << "Profitable Trade Found: " << endl;
+                                ts->print_seq();
+                                return ts;
+                            }
+                        }
+                    }
+                    delete ts;
                 }
             }
         }
-        return ts;
+        return nullptr;
     }
-
-    void print_trade_seqs() const{
-        for(const auto& ts : _seqs){
-            ts.print_seq();
-        }
-    }
-
 
     void execute_trades(trade_seq* trade_seq){
-
-        cout << "Balances Before:";
-        for(const auto& currency : trade_seq->currencies()){
-            cout << " " << currency << ":" << _balances[currency];
-        }
-        cout << endl;
 
         _curl_post = curl_easy_init();
         set_curl_post_options(_curl_post);
 
-        double amount = _balances[trade_seq->trades.front().sell];
+        int num_trades = trade_seq->trades.size();
         int trade_num = 0;
         for(const auto& tp : trade_seq->trades){
-            cout << "EXECUTING TRADE " << ++trade_num << ": " << tp.sell << ">" << tp.buy << " quote:" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << "(" << tp.action << ")" << endl;
-            if(_balances[tp.sell] < 0.000001){
-                cout << "Encountered near-zero balance for " << tp.sell << ". Throwing Error." << endl;
-                throw ARB_ERR_INSUFFICIENT_FUNDS;
-            }
 
-            //last trade in a sequence can go on the books for execution anytime
-            bool immediate_only = true;
-            if(trade_num == 3){
-                immediate_only = false;
-            }
-
-            if(_name == "poloniex" || _name == "poloniex-test"){
-                if(tp.action == 's'){
-                    amount = poloniex_sell(tp.sell, tp.buy, tp.quote, amount, immediate_only);
-                }else if(tp.action == 'b'){
-                    amount = poloniex_buy(tp.sell, tp.buy, tp.quote, amount, immediate_only);
-                } else {
-                    cout << "Unknown action of trade pair encountered. Throwing Error." << endl;
-                    throw ARB_ERR_BAD_OPTION;
-                }
+            if(_name == "poloniex"){
+                poloniex_trade(trade_num, tp.sell, tp.buy, tp.exchange_id, tp.action, tp.quote, trade_seq->amounts[trade_num]);
             } else {
                 cout << "trade requested on unsupported exchange. Throwing Error." << endl;
                 throw ARB_ERR_BAD_OPTION;
             }
         }
-
-        curl_easy_cleanup(_curl_post);
-
         cout << "Balances After:";
         for(const auto& currency : trade_seq->currencies()){
             cout << " " << currency << ":" << _balances[currency];
         }
         cout << endl;
-        
+
+        curl_easy_cleanup(_curl_post);
+        ++trade_num;
 
     }
 
@@ -372,6 +354,42 @@ private:
 
     void process_ticker_update(string message){
         cout << "Processing Message:" << message << endl;
+        //[1002,null,[126,"238.99999999","239.25328845","239.07169998","-0.00905593","549272.05317976","2348.39754632",0,"241.63999999","228.00000000"]])
+
+        /*
+        //begin really funky string parsing. It's two lines of code to turn the whole thing into a json document, but this is a bit faster
+        int pair_id;
+        double ask;
+        double bid;
+        //check we're working on expected array before doing brittle operations
+        if(!(message[0] == '[' && message[11] == '[')){
+            throw ARB_ERR_UNEXPECTED_STR;
+        }
+        int start=12; //location of trade pair id
+        int end = message.size(); //
+        int quote_num = 0;
+        for(int i=12; i<end; ++i){
+            if(quote_num == 0 && message[i] == ','){
+                //cout << "Parsed ID:" << message.substr(start, i-start) << endl;
+                pair_id = stoi(message.substr(start, i-start));
+            }
+            if(message[i] == '"'){
+                ++quote_num;
+                if(quote_num == 3){ //lowestAsk
+                    start = i+1;
+                }else if(quote_num == 4){//end of lowestAsk
+                 //   cout << "Parsed ask:" << message.substr(start, i-start) << endl;
+                    ask = stod(message.substr(start, i-start));
+                } else if(quote_num == 5){ //highestBid
+                    start = i+1;
+                } else if(quote_num == 6){//end of highestBid
+                  //  cout << "Parsed bid:" << message.substr(start, i-start) << endl;
+                    bid = stod(message.substr(start, i-start));
+                    break;
+                }
+            }
+        }
+        */
         rapidjson::Document ticker_update;
         ticker_update.Parse(message.c_str());
         int pair_id = ticker_update[2][0].GetInt();
@@ -414,7 +432,7 @@ private:
         curl_easy_setopt(_curl_post, CURLOPT_USERAGENT, "redshift crypto automated trader");
     }
 
-    std::string poloniex_post(char* post_data) const {
+    std::string poloniex_post(char* post_data, int seq_num = 0) const {
 
         char nonce[14];
         long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
@@ -423,9 +441,10 @@ private:
         strcat(post_data, "&nonce=");
         strcat(post_data, nonce);
 
-        char api_secret[129] = getenv("ARB_API_SECRET");
-        char api_key_header[40] = getenv("ARB_API_KEY");
-        string signature = hmac_512_sign(api_secret, post_data);
+        char api_key_header[40] = "Key:";
+        strcat(api_key_header, _api_keys[seq_num]);
+
+        string signature = hmac_512_sign(_api_secrets[seq_num], post_data);
 
         CURLcode result;
 
@@ -553,18 +572,31 @@ private:
     }
 
     //returns balance added to destination currency to use in forward chain
-    double poloniex_sell(const char* sell, const char* buy, double rate, double sell_amount, bool immediate_only){
-        rate -= 0.00000001; //round down to ensure sale executes
+    void poloniex_trade(int seq_num, const char* sell, const char* buy, int pair_id, char action, double rate, double amount, bool immediate_only = false){
+        cout << "EXECUTING TRADE " << seq_num << ": " << sell << ">" << buy << " quote:" << fixed << setprecision(8) << rate << " amount:" << amount << "(" << action << ")" << endl;
+        //round to improve odds of sale executing
+        if(action == 'b'){
+            rate += 0.00000001;
+            //amount passed is amount to sell, convert for buys
+        }else if(action == 's'){
+            rate -= 0.00000001;
+        }
+
+
         char rate_s[16];
         sprintf(rate_s, "%.8f", rate);
         char amount_s[16];
-        sprintf(amount_s, "%.8f", sell_amount);
+        sprintf(amount_s, "%.8f", amount);
         char post_data[120];
 
-        strcpy(post_data, "command=sell&currencyPair=");
-        strcat(post_data, buy);
-        strcat(post_data, "_");
-        strcat(post_data, sell);
+        strcpy(post_data, "command=");
+        if(action == 'b'){
+            strcat(post_data, "buy");
+        }else if(action == 's'){
+            strcat(post_data, "sell");
+        }
+        strcat(post_data, "&currencyPair=");
+        strcat(post_data, _pair_ids[pair_id].c_str());
         strcat(post_data, "&rate=");
         strcat(post_data, rate_s);
         strcat(post_data, "&amount=");
@@ -573,74 +605,31 @@ private:
             strcat(post_data, "&immediateOrCancel=1");
         }
 
-        string http_data = poloniex_post(post_data);
+        string http_data = poloniex_post(post_data, seq_num);
 
         //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
         rapidjson::Document trade_result;
         trade_result.Parse(http_data.c_str());
 
         double traded_amount = 0;
+        double traded_total = 0;
         if(trade_result["resultingTrades"].Empty()){
             cout << "No Resulting Trades executed. Throwing Error." << endl;
             throw ARB_ERR_TRADE_NOT_EX;
         } else {
             //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
-            double unfilled = stod(trade_result["amountUnfilled"].GetString());
-            _balances[sell] -= (sell_amount - unfilled);
-
             for(const auto& trade : trade_result["resultingTrades"].GetArray()){
-                traded_amount += stod(trade["total"].GetString()) * (1 - _market_fee);
+                traded_amount += stod(trade["amount"].GetString());
+                traded_total += stod(trade["total"].GetString());
             }
-            _balances[buy] += traded_amount;
-        }
-        return traded_amount;
-
-    }
-
-    double poloniex_buy(const char* sell, const char* buy, double rate, double sell_amount, bool immediate_only){
-        rate += 0.00000001; //round up to ensure sale executes
-        double buy_amount = sell_amount / rate;
-
-        char rate_s[16];
-        sprintf(rate_s, "%.8f", rate);
-        char amount_s[16];
-        sprintf(amount_s, "%.8f", buy_amount);
-        char post_data[120];
-        strcpy(post_data, "command=buy&currencyPair=");
-        strcat(post_data, sell);
-        strcat(post_data, "_");
-        strcat(post_data, buy);
-        strcat(post_data, "&rate=");
-        strcat(post_data, rate_s);
-        strcat(post_data, "&amount=");
-        strcat(post_data, amount_s);
-        if(immediate_only){
-            strcat(post_data, "&immediateOrCancel=1");
-        }
-
-        string http_data = poloniex_post(post_data);
-
-        //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
-        rapidjson::Document trade_result;
-        trade_result.Parse(http_data.c_str());
-
-        double bought_amount = 0;
-        double sold_amount = 0;
-        if(trade_result["resultingTrades"].Empty()){
-            cout << "No Resulting Trades executed. Throwing Error." << endl;
-            throw ARB_ERR_TRADE_NOT_EX;
-        } else {
-            //{"orderNumber":"270275494074","resultingTrades":[{"amount":"0.31281719","date":"2018-04-26 19:52:58","rate":"0.02989499","total":"0.00935166","tradeID":"16843227","type":"buy"}],"amountUnfilled":"0.00000000"}
-            //double unfilled = stod(trade_result["amountUnfilled"].GetString());
-
-            for(const auto& trade : trade_result["resultingTrades"].GetArray()){
-                bought_amount += stod(trade["amount"].GetString()) * (1 - _market_fee);
-                sold_amount += stod(trade["total"].GetString());
+            if(action == 'b'){
+                _balances[buy] += traded_amount * (1 - _market_fee);
+                _balances[sell] -= traded_total;
+            }else if(action == 's'){
+                _balances[sell] -= traded_amount;
+                _balances[buy] += traded_total * (1 - _market_fee);
             }
-            _balances[buy] += bought_amount;
-            _balances[sell] -= sold_amount;
         }
-        return bought_amount;
     }
 
 };

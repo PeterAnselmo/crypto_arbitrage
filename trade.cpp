@@ -15,12 +15,16 @@ int main(int argc, char* argv[]){
 
     crypto_exchange* poloniex = new crypto_exchange("poloniex");
 
-    /*
+    poloniex->populate_trade_pairs();
     trade_pair tp;
-    tp.sell = "XRP";
-    tp.buy = "BTC";
-    tp.quote = 0.00008990;
-    tp.action = "sell";
+    strcpy(tp.sell, "BTC");
+    strcpy(tp.buy, "BLK");
+    tp.exchange_id = 10;
+    tp.quote = 0.00003590;
+    tp.action = 'b';
+
+
+    /*
 
     trade_pair tp;
     tp.sell = "BTC";
@@ -30,7 +34,7 @@ int main(int argc, char* argv[]){
     */
 
     trade_seq ts;
-    ts.add_pair(tp);
+    ts.add_pair(tp, 0.003);
 
     poloniex->execute_trades(&ts);
 
