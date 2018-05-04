@@ -117,9 +117,9 @@ TEST(CryptoExchange, PoloniexFindsProfitableTrade){
 
     poloniex->populate_trade_pairs();
 
-    trade_seq* profitable_trade = poloniex->find_trade();
+    trade_seq* profitable_trade = nullptr;
+    ASSERT_TRUE(poloniex->find_trade(profitable_trade));
 
-    ASSERT_FALSE(profitable_trade == nullptr);
 }
 TEST(CryptoExchange, PoloniexFailsUnderfundedSell){
 
@@ -155,11 +155,11 @@ TEST(CryptoExchange, PoloniexFailsMispricedSell){
     tp.quote = 0.00010000;
     tp.action = 's';
 
-    trade_seq ts;
-    ts.add_pair(tp, poloniex->balance("XRP"));
+    trade_seq* ts = new trade_seq;
+    ts->add_pair(tp, poloniex->balance("XRP"));
 
     //TODO: Make this exception expectation more specific
-    ASSERT_ANY_THROW(poloniex->execute_trades(&ts));
+    ASSERT_ANY_THROW(poloniex->execute_trades(ts));
 }
 TEST(CryptoExchange, PoloniexSellSucceeds){
 
@@ -176,14 +176,14 @@ TEST(CryptoExchange, PoloniexSellSucceeds){
     tp.quote = 0.00008996;
     tp.action = 's';
 
-    trade_seq ts;
-    ts.add_pair(tp, poloniex->balance("XRP"));
+    trade_seq* ts = new trade_seq;
+    ts->add_pair(tp, poloniex->balance("XRP"));
 
     ASSERT_FLOAT_EQ(50.0, poloniex->balance("XRP"));
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
 
     //TODO: Make this exception expectation more specific
-    ASSERT_NO_THROW(poloniex->execute_trades(&ts));
+    ASSERT_NO_THROW(poloniex->execute_trades(ts));
 
     ASSERT_FLOAT_EQ(0.0, poloniex->balance("XRP"));
     ASSERT_FLOAT_EQ(1.00448676, poloniex->balance("BTC"));
@@ -203,14 +203,14 @@ TEST(CryptoExchange, PoloniexFailsMispricedBuy){
     tp.quote = 0.0300;
     tp.action = 'b';
 
-    trade_seq ts;
-    ts.add_pair(tp, 1.0);
+    trade_seq* ts = new trade_seq;
+    ts->add_pair(tp, 1.0);
 
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(0, poloniex->balance("ZEC"));
 
     //TODO: Make this exception expectation more specific
-    ASSERT_ANY_THROW(poloniex->execute_trades(&ts));
+    ASSERT_ANY_THROW(poloniex->execute_trades(ts));
 
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(0, poloniex->balance("ZEC"));
@@ -230,14 +230,14 @@ TEST(CryptoExchange, PoloniexBuySucceeds){
     tp.quote = 0.0299;
     tp.action = 'b';
 
-    trade_seq ts;
-    ts.add_pair(tp, 1.0);
+    trade_seq* ts = new trade_seq;
+    ts->add_pair(tp, 1.0);
 
     ASSERT_FLOAT_EQ(1.0, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(0, poloniex->balance("XMR"));
 
     //TODO: Make this exception expectation more specific
-    ASSERT_NO_THROW(poloniex->execute_trades(&ts));
+    ASSERT_NO_THROW(poloniex->execute_trades(ts));
 
     //Have to account for some dust lost due to conversion rounding
     ASSERT_NEAR(0.0, poloniex->balance("BTC"), .001);
@@ -258,8 +258,10 @@ TEST(CryptoExchange, EntireSequenceExcecuted){
     ASSERT_NO_THROW({
         poloniex->populate_trade_pairs();
 
-        trade_seq* profitable_trade = poloniex->find_trade();
-        poloniex->execute_trades(profitable_trade);
+        trade_seq* profitable_trade = nullptr;
+        if(poloniex->find_trade(profitable_trade)){
+            poloniex->execute_trades(profitable_trade);
+        }
     });
 
     ASSERT_FLOAT_EQ(target_balance, poloniex->balance("BTC"));

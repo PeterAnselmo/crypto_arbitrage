@@ -6,3 +6,5 @@ tests:
 	g++ test/main.cpp -std=c++11 -lcurl -lcryptopp -lgtest -lpthread -lm -lcpprest -o test/main_test
 benchmark: benchmark.cpp
 	g++ benchmark.cpp -std=c++11 -O2 -lcurl -lcryptopp -lpthread -lm -lcpprest -o benchmark
+grind: grind.cpp crypto_exchange.cpp arb_util.cpp
+	g++ grind.cpp -std=c++11 -O0 -g -lcurl -lcryptopp -lpthread -lm -lcpprest -o grind

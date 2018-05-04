@@ -47,6 +47,7 @@ int main(int argc, char* argv[]){
         poloniex->clear_trades_and_pairs();
         */
 
+    delete poloniex;
 
     return 0;
 }

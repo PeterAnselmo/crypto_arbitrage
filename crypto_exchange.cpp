@@ -205,11 +205,12 @@ public:
                         data_stale = false;
                     }
                     process_ticker_update(body);
-                    trade_seq* profitable_trade = find_trade();
+                    trade_seq* profitable_trade = nullptr;
 
-                    if(profitable_trade != nullptr){
+                    if(find_trade(profitable_trade)){
                         execute_trades(profitable_trade);
 
+                        delete profitable_trade;
                         throw 255;
                     }
                 }
@@ -221,10 +222,9 @@ public:
     }
 
 
-    trade_seq* find_trade(){
+    bool find_trade(trade_seq*& ts){
         int trades_added = 0;
 
-        trade_seq* ts = nullptr;
         double net;
         for(const auto& tp1 : _pairs){
             for(const auto& tp2 : _pairs) {
@@ -253,7 +253,7 @@ public:
                                 ts->net_gain = net;
                                 cout << "Profitable Trade Found: " << endl;
                                 ts->print_seq();
-                                return ts;
+                                return true;
                             }
                         }
                     }
@@ -261,13 +261,14 @@ public:
                 }
             }
         }
-        return nullptr;
+        return false;
     }
 
-    void execute_trades(trade_seq* trade_seq){
+    void execute_trades(trade_seq*& trade_seq){
         int num_trades = trade_seq->trades.size();
 
         CURL* handles[num_trades];
+        struct curl_slist *header_slist[num_trades];
         CURLM* multi_handle;
         CURLMsg *msg; /* for picking up messages with the transfer status */ 
         int msgs_left; /* how many messages are left */ 
@@ -280,13 +281,14 @@ public:
         for(int i=0; i<num_trades; ++i){
             handles[i] = curl_easy_init();
             http_data[i] = std::unique_ptr<std::string>(new string());
+            header_slist[i] = nullptr;
         }
 
         int trade_num = 0;
         for(const auto& tp : trade_seq->trades){
 
             if(_name == "poloniex"){
-                poloniex_prepare_trade(handles[trade_num], trade_num, tp.sell, tp.buy, tp.exchange_id, tp.action, tp.quote, trade_seq->amounts[trade_num]);
+                poloniex_prepare_trade(handles[trade_num], header_slist[trade_num], trade_num, tp.sell, tp.buy, tp.exchange_id, tp.action, tp.quote, trade_seq->amounts[trade_num]);
             } else {
                 cout << "trade requested on unsupported exchange. Throwing Error." << endl;
                 throw ARB_ERR_BAD_OPTION;
@@ -400,6 +402,7 @@ public:
                throw 30;
                }
                */
+            curl_slist_free_all(header_slist[i]);
             curl_easy_cleanup(handles[i]);
         }
         curl_multi_cleanup(multi_handle);
@@ -559,7 +562,7 @@ private:
         }
     }
 
-    void set_curl_post_options(CURL* curl, char* post_data, int api_num = 0){
+    void set_curl_post_options(CURL* curl, curl_slist*& header_slist, char* post_data, int api_num = 0){
         char nonce[14];
         long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         sprintf(nonce, "%li", now);
@@ -575,11 +578,10 @@ private:
         printf("Sending Post Data: %s\n", post_data);
         curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, post_data);
 
-        struct curl_slist *chunk = NULL;
-        chunk = curl_slist_append(chunk, api_key_header);
+        header_slist = curl_slist_append(header_slist, api_key_header);
         string sig_header = "Sign:" + signature;
-        chunk = curl_slist_append(chunk, sig_header.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+        header_slist = curl_slist_append(header_slist, sig_header.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_slist);
 
         if(ARB_DEBUG){
             curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
@@ -642,8 +644,10 @@ private:
         strcpy(post_data, "command=returnFeeInfo");
         
         CURL* curl = curl_easy_init();
-		set_curl_post_options(curl, post_data);
+        struct curl_slist *header_slist = nullptr;
+		set_curl_post_options(curl, header_slist, post_data);
         string http_data = poloniex_single_post(curl);
+        curl_slist_free_all(header_slist);
 		curl_easy_cleanup(curl);
 
         rapidjson::Document fee_json;
@@ -659,8 +663,10 @@ private:
         strcpy(post_data, "command=returnBalances");
 
         CURL* curl = curl_easy_init();
-		set_curl_post_options(curl, post_data);
+        struct curl_slist *header_slist = nullptr;
+		set_curl_post_options(curl, header_slist, post_data);
         string http_data = poloniex_single_post(curl);
+        curl_slist_free_all(header_slist);
 		curl_easy_cleanup(curl);
 
         rapidjson::Document balance_json;
@@ -726,7 +732,7 @@ private:
     }
 
     //returns balance added to destination currency to use in forward chain
-    void poloniex_prepare_trade(CURL* curl, int seq_num, const char* sell, const char* buy, int pair_id, char action, double rate, double amount, bool immediate_only = false){
+    void poloniex_prepare_trade(CURL* curl, curl_slist*& header_slist, int seq_num, const char* sell, const char* buy, int pair_id, char action, double rate, double amount, bool immediate_only = false){
         cout << "EXECUTING TRADE " << seq_num << ": " << sell << ">" << buy << " quote:" << fixed << setprecision(8) << rate << " amount:" << amount << "(" << action << ")" << endl;
         //round to improve odds of sale executing
         if(action == 'b'){
@@ -758,7 +764,7 @@ private:
             strcat(post_data, "&immediateOrCancel=1");
         }
 
-        set_curl_post_options(curl, post_data, seq_num);
+        set_curl_post_options(curl, header_slist, post_data, seq_num);
     }
 
 };
