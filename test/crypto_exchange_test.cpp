@@ -287,9 +287,6 @@ TEST(CryptoExchange, EntireWSequenceExecuted){
     tp = poloniex->get_pair(198, 's');
     ASSERT_FLOAT_EQ(0.00321199, tp.quote);
 
-    double balance_before = poloniex->balance("BTC");
-    double balance_expected_after = balance_before * 1.28650951;
-
     //test server will disconnect causing exception (but after data is populated)
     ASSERT_ANY_THROW(poloniex->monitor_trades());
 
@@ -305,5 +302,10 @@ TEST(CryptoExchange, EntireWSequenceExecuted){
     tp = poloniex->get_pair(198, 's');
     ASSERT_FLOAT_EQ(0.00421197, tp.quote);
 
-    ASSERT_FLOAT_EQ(balance_expected_after, poloniex->balance("BTC"));
+    //1 Gas * sell@.00421197 * .9975 fee
+    ASSERT_FLOAT_EQ(0.00420144, poloniex->balance("BTC"));
+    //.0044ETH / buty@.00421197 * .9975 fee
+    ASSERT_FLOAT_EQ(1.00085879, poloniex->balance("GAS"));
+    //.00315BTC / buy@.00741 * .9975
+    ASSERT_FLOAT_EQ(0.04240385, poloniex->balance("ETH"));
 }
