@@ -150,16 +150,12 @@ public:
     }
 
     void populate_trade_pairs(){
+        _pairs.clear();
         if(_name == "poloniex"){
             return populate_poloniex_trade_pairs();
         }else if(_name == "gdax" || _name == "gdax-test"){
             return populate_gdax_trade_pairs();
         }
-    }
-
-    void clear_trades_and_pairs(){
-        _pairs.clear();
-
     }
 
     void print_trade_pairs() const{
@@ -201,6 +197,7 @@ public:
                     data_stale = true;
                 } else {
                     if(data_stale == true){//first time back in the loop
+                        cout << "Back to good data, doing fresh pull of all trade pairs..." << endl;
                         populate_trade_pairs();
                         data_stale = false;
                     }
@@ -244,12 +241,19 @@ public:
                     if(net < 1.0020){
                         continue;
                     }
-                    cout << "Found Potential Trade: " << tp1.sell << ">" << tp2.sell << ">" << tp3.sell << ">" << tp3.buy << fixed << setprecision(8) << " net:" << net << ", " << endl;
+                    cout << "Found Potential Trade: " 
+                         << tp1.sell << ">" << tp2.sell << "(" << tp1.action << ") > " 
+                         << tp2.sell << ">" << tp3.sell << "(" << tp2.action << ") > " 
+                         << tp3.sell << ">" << tp3.buy << "(" << tp3.action << ") > " 
+                         << tp3.buy << fixed << setprecision(8) << " net:" << net << ", " << endl;
 
                     ts = new trade_seq;
                     if(ts->add_pair(tp1, _balances[tp1.sell])){
+                        cout << "First trade Added." << endl;
                         if(ts->add_pair(tp2, _balances[tp2.sell])){
+                            cout << "Second trade Added.";
                             if(ts->add_pair(tp3, _balances[tp3.sell])){
+                                cout << "tecond trade Added.";
                                 ts->net_gain = net;
                                 cout << "Profitable Trade Found: " << endl;
                                 ts->print_seq();
@@ -264,7 +268,7 @@ public:
         return false;
     }
 
-    void execute_trades(trade_seq*& trade_seq){
+    bool execute_trades(trade_seq*& trade_seq){
         int num_trades = trade_seq->trades.size();
 
         CURL* handles[num_trades];
@@ -385,10 +389,37 @@ public:
             }
         }
 
+        bool all_trades_executed = true;
         /* Free the CURL handles */ 
         for(int i = 0; i<num_trades; i++){
             std::cout << "HTTP Response " << i << ": " << *http_data[i].get() << std::endl;
 
+            rapidjson::Document trade_result;
+            trade_result.Parse((*http_data[i]).c_str());
+            trade_pair* tp = &trade_seq->trades[i];
+
+            double traded_amount = 0;
+            double traded_total = 0;
+            if(trade_result["resultingTrades"].Empty()){
+                all_trades_executed = false;
+            } else {
+                //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
+                for(const auto& trade : trade_result["resultingTrades"].GetArray()){
+                    traded_amount += stod(trade["amount"].GetString());
+                    traded_total += stod(trade["total"].GetString());
+                }
+                if(trade_seq->trades[i].action == 'b'){
+                    _balances[tp->buy] += traded_amount * (1 - _market_fee);
+                    _balances[tp->sell] -= traded_total;
+                }else if(trade_seq->trades[i].action == 's'){
+                    _balances[tp->sell] -= traded_amount;
+                    _balances[tp->buy] += traded_total * (1 - _market_fee);
+                }
+                //trade was partially filled
+                if((traded_amount - trade_seq->amounts[i]) > 0.0000001){
+                    all_trades_executed = false;
+                }
+            }
             /*
                curl_easy_getinfo(handles[i], CURLINFO_RESPONSE_CODE, http_code[i]);
                cout << "code" << http_code[i] << endl;
@@ -410,28 +441,6 @@ public:
         //Gather and execute handles
         /*
         //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
-        rapidjson::Document trade_result;
-        trade_result.Parse(http_data.c_str());
-
-        double traded_amount = 0;
-        double traded_total = 0;
-        if(trade_result["resultingTrades"].Empty()){
-        cout << "No Resulting Trades executed. Throwing Error." << endl;
-        throw ARB_ERR_TRADE_NOT_EX;
-        } else {
-        //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
-        for(const auto& trade : trade_result["resultingTrades"].GetArray()){
-        traded_amount += stod(trade["amount"].GetString());
-        traded_total += stod(trade["total"].GetString());
-        }
-        if(action == 'b'){
-        _balances[buy] += traded_amount * (1 - _market_fee);
-        _balances[sell] -= traded_total;
-        }else if(action == 's'){
-        _balances[sell] -= traded_amount;
-        _balances[buy] += traded_total * (1 - _market_fee);
-        }
-        }
 
         cout << "Balances After:";
         for(const auto& currency : trade_seq->currencies()){
@@ -440,7 +449,7 @@ public:
         cout << endl;
 
 */
-
+        return all_trades_executed;
     }
 
 private:
@@ -500,7 +509,7 @@ private:
     }
 
     void process_ticker_update(string message){
-        cout << "Processing Message:" << message << endl;
+            cout << "Processing Message:" << message << endl;
         //[1002,null,[126,"238.99999999","239.25328845","239.07169998","-0.00905593","549272.05317976","2348.39754632",0,"241.63999999","228.00000000"]])
 
         /*
