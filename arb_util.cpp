@@ -17,11 +17,11 @@
 #define ARB_ERR_INSUFFICIENT_FUNDS 30
 #define ARB_ERR_TRADE_NOT_EX 31
 #define ARB_ERR_UNEXPECTED_STR 41
+#define ARB_ERR_UNKNOWN_PAIR 51
 
 constexpr bool ARB_DEBUG = false;
 
 using namespace std;
-using namespace CryptoPP;
 
 namespace
 {
@@ -117,11 +117,11 @@ string hmac_512_sign(const char* key, string plain) {
 
     string mac, encoded;
     try {
-		HMAC<SHA512 > hmac((byte*)key, strlen(key));
+        CryptoPP::HMAC<CryptoPP::SHA512 > hmac((byte*)key, strlen(key));
 
-		StringSource(plain, true,
-			new HashFilter(hmac,
-				new StringSink(mac)
+		CryptoPP::StringSource(plain, true,
+			new CryptoPP::HashFilter(hmac,
+				new CryptoPP::StringSink(mac)
 			) // HashFilter
 		); // StringSource
 
@@ -131,9 +131,9 @@ string hmac_512_sign(const char* key, string plain) {
     }
 
     encoded.clear();
-    StringSource(mac, true,
-            new HexEncoder(
-                    new StringSink(encoded)
+    CryptoPP::StringSource(mac, true,
+            new CryptoPP::HexEncoder(
+                    new CryptoPP::StringSink(encoded)
             ) // Base64Encoder
     ); // StringSource
     return encoded;

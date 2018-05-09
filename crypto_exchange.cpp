@@ -14,7 +14,6 @@
 #include <cpprest/ws_client.h>
 
 using namespace std;
-using namespace web::websockets::client;
 
 struct trade_seq {
     vector<trade_pair> trades;
@@ -100,14 +99,11 @@ public:
             _api_keys[2] = getenv("ARB_API_KEY_2");
             _api_secrets[2] = getenv("ARB_API_SECRET_2");
 
-
             _market_fee = get_poloniex_taker_fee();
             populate_balances();
         } else {
             cout << "Unknown Exchange" << endl;
         }
-
-        //post connections can't be left open during all the ticker polling
 
     }
     ~crypto_exchange(){
@@ -170,6 +166,7 @@ public:
                 return tp;
             }
         }
+        throw ARB_ERR_UNKNOWN_PAIR;
     }
 
     int num_trade_pairs() const{
@@ -177,19 +174,19 @@ public:
     }
 
     int monitor_trades(){
-        websocket_client client;
+        web::websockets::client::websocket_client client;
         //client.connect("ws://anselmo.me:8181").wait();
         client.connect(_ws_url).wait();
 
         string command = "{\"command\":\"subscribe\",\"channel\":1002}";
 
-        websocket_outgoing_message out_msg;
+        web::websockets::client::websocket_outgoing_message out_msg;
         out_msg.set_utf8_message(command);
         client.send(out_msg).wait();
 
         bool data_stale = true;
         while(true){
-            client.receive().then([](websocket_incoming_message in_msg) {
+            client.receive().then([](web::websockets::client::websocket_incoming_message in_msg) {
                 return in_msg.extract_string();
             }).then([&](string body) {
                 if(body == "[1002,1]" || body == "[1010]"){//sometimes it just spits this back for a while
@@ -220,9 +217,8 @@ public:
 
 
     bool find_trade(trade_seq*& ts){
-        int trades_added = 0;
 
-        double net;
+        float net;
         for(const auto& tp1 : _pairs){
             for(const auto& tp2 : _pairs) {
                 if(strcmp(tp1.buy, tp2.sell) != 0){
@@ -392,63 +388,46 @@ public:
         bool all_trades_executed = true;
         /* Free the CURL handles */ 
         for(int i = 0; i<num_trades; i++){
-            std::cout << "HTTP Response " << i << ": " << *http_data[i].get() << std::endl;
 
-            rapidjson::Document trade_result;
-            trade_result.Parse((*http_data[i]).c_str());
-            trade_pair* tp = &trade_seq->trades[i];
+            curl_easy_getinfo(handles[i], CURLINFO_RESPONSE_CODE, &http_code[i]);
+            std::cout << "Receieved " << http_code[i] << " Response: " << *http_data[i].get() << std::endl;
+            if (http_code[i] == 200) {
 
-            double traded_amount = 0;
-            double traded_total = 0;
-            if(trade_result["resultingTrades"].Empty()){
-                all_trades_executed = false;
-            } else {
-                //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
-                for(const auto& trade : trade_result["resultingTrades"].GetArray()){
-                    traded_amount += stod(trade["amount"].GetString());
-                    traded_total += stod(trade["total"].GetString());
-                }
-                if(trade_seq->trades[i].action == 'b'){
-                    _balances[tp->buy] += traded_amount * (1 - _market_fee);
-                    _balances[tp->sell] -= traded_total;
-                }else if(trade_seq->trades[i].action == 's'){
-                    _balances[tp->sell] -= traded_amount;
-                    _balances[tp->buy] += traded_total * (1 - _market_fee);
-                }
-                //trade was partially filled
-                if((traded_amount - trade_seq->amounts[i]) > 0.0000001){
+                rapidjson::Document trade_result;
+                trade_result.Parse((*http_data[i]).c_str());
+                trade_pair* tp = &trade_seq->trades[i];
+
+                double traded_amount = 0;
+                double traded_total = 0;
+                if(trade_result["resultingTrades"].Empty()){
                     all_trades_executed = false;
+                } else {
+                    //{"orderNumber":"144492489990","resultingTrades":[{"amount":"179.69999695","date":"2018-04-26 06:40:57","rate":"0.00008996","total":"0.01616581","tradeID":"21662264","type":"sell"}],"amountUnfilled":"0.00000000"}
+                    for(const auto& trade : trade_result["resultingTrades"].GetArray()){
+                        traded_amount += stod(trade["amount"].GetString());
+                        traded_total += stod(trade["total"].GetString());
+                    }
+                    if(trade_seq->trades[i].action == 'b'){
+                        _balances[tp->buy] += traded_amount * (1 - _market_fee);
+                        _balances[tp->sell] -= traded_total;
+                    }else if(trade_seq->trades[i].action == 's'){
+                        _balances[tp->sell] -= traded_amount;
+                        _balances[tp->buy] += traded_total * (1 - _market_fee);
+                    }
+                    //trade was partially filled
+                    if((traded_amount - trade_seq->amounts[i]) > 0.0000001){
+                        all_trades_executed = false;
+                    }
                 }
+            } else { //non 200 response
+                all_trades_executed = false;
             }
-            /*
-               curl_easy_getinfo(handles[i], CURLINFO_RESPONSE_CODE, http_code[i]);
-               cout << "code" << http_code[i] << endl;
-               if (http_code[i] == 200) {
-               std::cout << "HTTP Response: " << *http_data[i] << std::endl;
-               } else {
-               const std::unique_ptr<std::string> last_url;
-               curl_easy_getinfo(handles[i], CURLINFO_EFFECTIVE_URL, &last_url);
-               std::cout << "Received " << http_code[i] << " response code from " << last_url << endl;
-               std::cout << "HTTP Response: " << *http_data[i] << std::endl;
-               throw 30;
-               }
-               */
+
             curl_slist_free_all(header_slist[i]);
             curl_easy_cleanup(handles[i]);
         }
         curl_multi_cleanup(multi_handle);
 
-        //Gather and execute handles
-        /*
-        //{"orderNumber":"144484516971","resultingTrades":[],"amountUnfilled":"179.69999695"}
-
-        cout << "Balances After:";
-        for(const auto& currency : trade_seq->currencies()){
-        cout << " " << currency << ":" << _balances[currency];
-        }
-        cout << endl;
-
-*/
         return all_trades_executed;
     }
 
@@ -612,10 +591,6 @@ private:
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
-    }
-
-    void poloniex_mulit_post(char* post_data, int seq_num){
-
     }
 
     string poloniex_single_post(CURL* curl) const {

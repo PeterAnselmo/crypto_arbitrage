@@ -251,9 +251,6 @@ TEST(CryptoExchange, EntireSequenceExcecuted){
                                                     "ws://anselmo.me:8181");
 
 
-    float starting_balance = poloniex->balance("BTC");
-    float target_balance = starting_balance * 1.09078932;
-
     ASSERT_NO_THROW({
         poloniex->populate_trade_pairs();
 
