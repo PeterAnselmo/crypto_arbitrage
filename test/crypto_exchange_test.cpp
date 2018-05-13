@@ -61,12 +61,14 @@ TEST(CryptoExchange, PoloniexTradePairsRetrieved){
 
     poloniex->populate_trade_pairs();
 
-    ASSERT_EQ(198, poloniex->num_trade_pairs());
+    //198 total, 20 are funded
+    //ASSERT_EQ(198, poloniex->num_trade_pairs());
+    ASSERT_EQ(20, poloniex->num_trade_pairs());
 }
 TEST(CryptoExchange, PoloniexTradePairsRetrieved2){
     crypto_exchange* poloniex = new crypto_exchange("poloniex",
                                                     "https://anselmo.me/poloniex/public2.php?command=returnTicker",
-                                                    "http://anselmo.me/poloniex/tradingapi.php",
+                                                    "http://anselmo.me/poloniex/tradingapi2.php",
                                                     "ws://anselmo.me:8282");
 
     poloniex->populate_trade_pairs();

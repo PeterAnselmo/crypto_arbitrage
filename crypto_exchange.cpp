@@ -68,6 +68,7 @@ class crypto_exchange {
     vector<trade_pair> _pairs;
     CURL* _curl_get;
     array<string, 300> _pair_ids;
+    array<bool, 300> _funded_pairs;
     const char* _api_keys[3];
     const char* _api_secrets[3];
 
@@ -189,6 +190,7 @@ public:
         bool data_stale = true;
         int count = 0;
         int elapsed;
+        float throughput, max_throughput = 0;
         constexpr int print_interval = 100;
         while(true){
             client.receive().then([](web::websockets::client::websocket_incoming_message in_msg) {
@@ -216,8 +218,12 @@ public:
                         count = 0;
                         end = std::chrono::steady_clock::now();
                         elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+                        throughput = print_interval * 1000.0 / elapsed;
+                        if(throughput > max_throughput){
+                            max_throughput = throughput;
+                        }
 
-                        cout << "100 Ticker Updates Processed in " << elapsed << " milliseconds (" << print_interval * 1000.0 / elapsed << "/s)." << endl;
+                        cout << "100 Ticker Updates Processed in " << elapsed << " milliseconds (" << throughput << "/s, max: " << max_throughput << "/s)." << endl;
                         begin = std::chrono::steady_clock::now();
                     }
                 }
@@ -441,6 +447,32 @@ public:
         return all_trades_executed;
     }
 
+    bool any_open_orders(){
+
+        char post_data[120];
+        strcpy(post_data, "command=returnOpenOrders&currencyPair=all");
+
+        CURL* curl = curl_easy_init();
+        struct curl_slist *header_slist = nullptr;
+		set_curl_post_options(curl, header_slist, post_data);
+        string http_data = poloniex_single_post(curl);
+        curl_slist_free_all(header_slist);
+		curl_easy_cleanup(curl);
+
+        cout << http_data << endl;
+        rapidjson::Document open_trades;
+        open_trades.Parse(http_data.c_str());
+
+        for(const auto& currency_pair : open_trades.GetObject()){
+            if(!currency_pair.value.Empty()){
+                return true;
+                //cout << "Pair: " << currency_pair.name.GetString() << " val: " << currency_pair.value.GetString() << endl;
+            }
+        }
+        return false;
+    }
+
+
 private:
 
     void populate_gdax_trade_pairs(){
@@ -541,6 +573,10 @@ private:
         double ask = stod(ticker_update[2][2].GetString());
         double bid = stod(ticker_update[2][3].GetString());
         */
+
+        if(!_funded_pairs[pair_id]){
+            return;
+        }
 
         int trades_seen = 0;
         for(vector<trade_pair>::iterator it = _pairs.begin(); it != _pairs.end(); ++it){
@@ -673,31 +709,6 @@ private:
         }
     }
 
-    bool any_open_orders(){
-
-        char post_data[120];
-        strcpy(post_data, "command=returnOpenOrders&currencyPair=all");
-
-        CURL* curl = curl_easy_init();
-        struct curl_slist *header_slist = nullptr;
-		set_curl_post_options(curl, header_slist, post_data);
-        string http_data = poloniex_single_post(curl);
-        curl_slist_free_all(header_slist);
-		curl_easy_cleanup(curl);
-
-        cout << http_data << endl;
-        rapidjson::Document open_trades;
-        open_trades.Parse(http_data.c_str());
-
-        for(const auto& currency_pair : open_trades.GetObject()){
-            if(!currency_pair.value.Empty()){
-                return true;
-                //cout << "Pair: " << currency_pair.name.GetString() << " val: " << currency_pair.value.GetString() << endl;
-            }
-        }
-        return false;
-    }
-
     void populate_poloniex_trade_pairs(){
 
         std::string http_data = curl_get(_curl_get);
@@ -732,22 +743,26 @@ private:
             }
             memcpy(curr_2, sep_it+1, it - sep_it);
 
-            strcpy(tp.sell, curr_2);
-            strcpy(tp.buy, curr_1);
-            tp.exchange_id = listed_pair.value["id"].GetInt();
-            tp.quote = stod(listed_pair.value["highestBid"].GetString());
-            tp.net = (1 - _market_fee) * tp.quote;
-            tp.action = 's';
-            _pairs.push_back(tp);
+            if(_balances[curr_1] >= 0.001 && _balances[curr_2] >= 0.001){
+                _funded_pairs[listed_pair.value["id"].GetInt()] = true;
 
-            strcpy(tp.sell, curr_1);
-            strcpy(tp.buy, curr_2);
-            tp.exchange_id = listed_pair.value["id"].GetInt();
-            tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
-            tp.net = (1 - _market_fee) / tp.quote;
-            tp.action = 'b';
-            _pairs.push_back(tp);
+                strcpy(tp.sell, curr_2);
+                strcpy(tp.buy, curr_1);
+                tp.exchange_id = listed_pair.value["id"].GetInt();
+                tp.quote = stod(listed_pair.value["highestBid"].GetString());
+                tp.net = (1 - _market_fee) * tp.quote;
+                tp.action = 's';
+                _pairs.push_back(tp);
 
+                strcpy(tp.sell, curr_1);
+                strcpy(tp.buy, curr_2);
+                tp.exchange_id = listed_pair.value["id"].GetInt();
+                tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
+                tp.net = (1 - _market_fee) / tp.quote;
+                tp.action = 'b';
+                _pairs.push_back(tp);
+
+            }
         }
     }
 
