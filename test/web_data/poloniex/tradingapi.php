@@ -6,6 +6,7 @@ $balances = array(
     "LTC"=>"3.25",
     "XMR"=>"0.00",
     "ZEC"=>"0.00",
+    "USDT"=>"30.00",
     "ETH"=>"2.1000000");
 $market_rates = array(
     "BTC_BCH" => 0.15167712,

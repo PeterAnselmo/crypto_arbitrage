@@ -4,7 +4,7 @@ var uuid = require('node-uuid'),
    _     = require('lodash')._;
 
 
-var message_delay = 22;
+var message_delay = 4;
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
