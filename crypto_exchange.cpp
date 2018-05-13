@@ -27,7 +27,7 @@ struct trade_seq {
         }
         return _currencies;
     }
-    bool add_pair(trade_pair new_trade_pair, float amount){
+    bool add_pair(trade_pair new_trade_pair, double amount){
         
         if(amount < 0.001){
             cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
