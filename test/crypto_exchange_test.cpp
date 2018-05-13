@@ -306,3 +306,17 @@ TEST(CryptoExchange, EntireWSequenceExecuted){
     //.00315BTC / buy@.00741 * .9975
     ASSERT_FLOAT_EQ(0.04240385, poloniex->balance("ETH"));
 }
+TEST(CryptoExchange, BuyAmountCorrectlyCalculated){
+
+    crypto_exchange* poloniex = new crypto_exchange("poloniex",
+                                                    "https://anselmo.me/poloniex/public3.php?command=returnTicker",
+                                                    "http://anselmo.me/poloniex/tradingapi3.php",
+                                                    "ws://anselmo.me:8282");
+
+    poloniex->populate_trade_pairs();
+    poloniex->print_trade_pairs();
+
+    trade_seq* profitable_trade = nullptr;
+    ASSERT_TRUE(poloniex->find_trade(profitable_trade));
+    ASSERT_TRUE(poloniex->execute_trades(profitable_trade));
+}

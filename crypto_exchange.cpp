@@ -754,6 +754,7 @@ private:
     //returns balance added to destination currency to use in forward chain
     void poloniex_prepare_trade(CURL* curl, curl_slist*& header_slist, int seq_num, const char* sell, const char* buy, int pair_id, char action, double rate, double amount, bool immediate_only = false){
         cout << "EXECUTING TRADE " << seq_num << ": " << sell << ">" << buy << " quote:" << fixed << setprecision(8) << rate << " amount:" << amount << "(" << action << ")" << endl;
+        /*
         //round to improve odds of sale executing
         if(action == 'b'){
             rate += 0.00000001;
@@ -761,6 +762,7 @@ private:
         }else if(action == 's'){
             rate -= 0.00000001;
         }
+        */
 
         char rate_s[16];
         sprintf(rate_s, "%.8f", rate);
