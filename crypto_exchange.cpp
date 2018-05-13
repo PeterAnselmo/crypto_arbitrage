@@ -17,7 +17,7 @@ using namespace std;
 
 struct trade_seq {
     vector<trade_pair> trades;
-    vector<float> amounts;
+    vector<double> amounts;
     double net_gain = 1;
 
     vector<string> currencies() const{
@@ -37,7 +37,7 @@ struct trade_seq {
         if(new_trade_pair.action == 'b'){//have sell amount, convert for buy amount
             amount = amount / new_trade_pair.quote;
         }
-        float total = amount * new_trade_pair.quote;
+        double total = amount * new_trade_pair.quote;
         if(total < 0.0001){
             cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
                  << amount << "@" << new_trade_pair.quote << " would have total < 0.0001. Invalidating." << endl;
@@ -184,7 +184,12 @@ public:
         out_msg.set_utf8_message(command);
         client.send(out_msg).wait();
 
+        std::chrono::steady_clock::time_point begin, end;
+        begin = std::chrono::steady_clock::now();
         bool data_stale = true;
+        int count = 0;
+        int elapsed;
+        constexpr int print_interval = 100;
         while(true){
             client.receive().then([](web::websockets::client::websocket_incoming_message in_msg) {
                 return in_msg.extract_string();
@@ -206,6 +211,14 @@ public:
 
                         delete profitable_trade;
                         throw 255;
+                    }
+                    if(++count == print_interval){
+                        count = 0;
+                        end = std::chrono::steady_clock::now();
+                        elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+
+                        cout << "100 Ticker Updates Processed in " << elapsed << " milliseconds (" << print_interval * 1000.0 / elapsed << "/s)." << endl;
+                        begin = std::chrono::steady_clock::now();
                     }
                 }
             }).wait();
@@ -245,11 +258,8 @@ public:
 
                     ts = new trade_seq;
                     if(ts->add_pair(tp1, _balances[tp1.sell])){
-                        cout << "First trade Added." << endl;
                         if(ts->add_pair(tp2, _balances[tp2.sell])){
-                            cout << "Second trade Added.";
                             if(ts->add_pair(tp3, _balances[tp3.sell])){
-                                cout << "tecond trade Added.";
                                 ts->net_gain = net;
                                 cout << "Profitable Trade Found: " << endl;
                                 ts->print_seq();
@@ -488,10 +498,9 @@ private:
     }
 
     void process_ticker_update(string message){
-            cout << "Processing Message:" << message << endl;
+        //    cout << "Processing Message:" << message << endl;
         //[1002,null,[126,"238.99999999","239.25328845","239.07169998","-0.00905593","549272.05317976","2348.39754632",0,"241.63999999","228.00000000"]])
 
-        /*
         //begin really funky string parsing. It's two lines of code to turn the whole thing into a json document, but this is a bit faster
         int pair_id;
         double ask;
@@ -524,12 +533,14 @@ private:
                 }
             }
         }
-        */
+
+        /*
         rapidjson::Document ticker_update;
         ticker_update.Parse(message.c_str());
         int pair_id = ticker_update[2][0].GetInt();
         double ask = stod(ticker_update[2][2].GetString());
         double bid = stod(ticker_update[2][3].GetString());
+        */
 
         int trades_seen = 0;
         for(vector<trade_pair>::iterator it = _pairs.begin(); it != _pairs.end(); ++it){
@@ -660,6 +671,31 @@ private:
         for(const auto& currency : balance_json.GetObject()){
             _balances[currency.name.GetString()] = stod(currency.value.GetString());
         }
+    }
+
+    bool any_open_orders(){
+
+        char post_data[120];
+        strcpy(post_data, "command=returnOpenOrders&currencyPair=all");
+
+        CURL* curl = curl_easy_init();
+        struct curl_slist *header_slist = nullptr;
+		set_curl_post_options(curl, header_slist, post_data);
+        string http_data = poloniex_single_post(curl);
+        curl_slist_free_all(header_slist);
+		curl_easy_cleanup(curl);
+
+        cout << http_data << endl;
+        rapidjson::Document open_trades;
+        open_trades.Parse(http_data.c_str());
+
+        for(const auto& currency_pair : open_trades.GetObject()){
+            if(!currency_pair.value.Empty()){
+                return true;
+                //cout << "Pair: " << currency_pair.name.GetString() << " val: " << currency_pair.value.GetString() << endl;
+            }
+        }
+        return false;
     }
 
     void populate_poloniex_trade_pairs(){

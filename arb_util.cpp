@@ -115,13 +115,15 @@ std::vector<std::string> split(const std::string &text, char sep) {
 //https://stackoverflow.com/questions/39721005/how-to-create-a-hmac-256-using-the-crypto-library#answer-39742465
 string hmac_512_sign(const char* key, string plain) {
 
-    string mac, encoded;
+    string sig;
     try {
         CryptoPP::HMAC<CryptoPP::SHA512 > hmac((byte*)key, strlen(key));
 
 		CryptoPP::StringSource(plain, true,
 			new CryptoPP::HashFilter(hmac,
-				new CryptoPP::StringSink(mac)
+                new CryptoPP::HexEncoder(
+                    new CryptoPP::StringSink(sig)
+                )
 			) // HashFilter
 		); // StringSource
 
@@ -130,13 +132,7 @@ string hmac_512_sign(const char* key, string plain) {
 		cerr << e.what() << endl;
     }
 
-    encoded.clear();
-    CryptoPP::StringSource(mac, true,
-            new CryptoPP::HexEncoder(
-                    new CryptoPP::StringSink(encoded)
-            ) // Base64Encoder
-    ); // StringSource
-    return encoded;
+    return sig;
 };
 
 #endif

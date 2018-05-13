@@ -23,6 +23,11 @@ int main(int argc, char* argv[]){
     */
 
         //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+
+        if(poloniex->any_open_orders()){
+            cout << "Open Orders Found. Exiting." << endl;
+            return 0;
+        }
         poloniex->populate_trade_pairs();
 
         poloniex->monitor_trades();
