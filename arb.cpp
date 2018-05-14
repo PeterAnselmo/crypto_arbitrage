@@ -9,6 +9,7 @@
 #include "crypto_exchange.cpp"
 
 using namespace std;
+constexpr int open_order_wait = 300; //5 minutes
 
 int main(int argc, char* argv[]){
 
@@ -23,14 +24,25 @@ int main(int argc, char* argv[]){
     */
 
         //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+    while(true){
 
         if(poloniex->any_open_orders()){
-            cout << "Open Orders Found. Exiting." << endl;
-            return 0;
+            cout << "Open Orders Found. Sleeping for " << open_order_wait << " seconds..." << endl;
+            sleep(open_order_wait);
+        } else {
+            poloniex->populate_balances();
+            poloniex->populate_trade_pairs();
+            try{
+                poloniex->monitor_trades();
+            } catch (int exception){
+                if(exception == ARB_TRADE_EXECUTED) {
+                    continue;
+                } else {
+                    return exception;
+                }
+            }
         }
-        poloniex->populate_trade_pairs();
-
-        poloniex->monitor_trades();
+    }
 
         /*
         std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();

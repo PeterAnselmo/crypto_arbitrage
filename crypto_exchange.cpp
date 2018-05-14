@@ -15,10 +15,14 @@
 
 using namespace std;
 
+//requires all balances be within this amount of each other
+constexpr float balance_utilization = 0.65;
+
 struct trade_seq {
     vector<trade_pair> trades;
     vector<double> amounts;
     double net_gain = 1;
+    double next_sell_amount = 0;
 
     vector<string> currencies() const{
         vector<string> _currencies;
@@ -27,8 +31,17 @@ struct trade_seq {
         }
         return _currencies;
     }
-    bool add_pair(trade_pair new_trade_pair, double amount){
+    bool add_pair(trade_pair new_trade_pair, double passed_amount = 0){
         
+        //first in a sequence, start with balance
+        double amount;
+        if(passed_amount != 0){
+            amount = passed_amount;
+        } else {
+            amount = next_sell_amount;
+        }
+        next_sell_amount = amount * new_trade_pair.net;
+
         if(amount < 0.001){
             cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
                  << amount << "@" << new_trade_pair.quote << " has Insufficient starting balance. Invalidating." << endl;
@@ -212,7 +225,7 @@ public:
                         execute_trades(profitable_trade);
 
                         delete profitable_trade;
-                        throw 255;
+                        throw ARB_TRADE_EXECUTED;
                     }
                     if(++count == print_interval){
                         count = 0;
@@ -263,9 +276,10 @@ public:
                          << tp3.buy << fixed << setprecision(8) << " net:" << net << ", " << endl;
 
                     ts = new trade_seq;
-                    if(ts->add_pair(tp1, _balances[tp1.sell])){
-                        if(ts->add_pair(tp2, _balances[tp2.sell])){
-                            if(ts->add_pair(tp3, _balances[tp3.sell])){
+                    //this requires all balances to be within 75% absolute value of each other
+                    if(ts->add_pair(tp1, _balances[tp1.sell] * balance_utilization)){
+                        if(ts->add_pair(tp2)){
+                            if(ts->add_pair(tp3)){
                                 ts->net_gain = net;
                                 cout << "Profitable Trade Found: " << endl;
                                 ts->print_seq();
@@ -534,9 +548,9 @@ private:
         //[1002,null,[126,"238.99999999","239.25328845","239.07169998","-0.00905593","549272.05317976","2348.39754632",0,"241.63999999","228.00000000"]])
 
         //begin really funky string parsing. It's two lines of code to turn the whole thing into a json document, but this is a bit faster
-        int pair_id;
-        double ask;
-        double bid;
+        int pair_id = 0;
+        double ask = 0;
+        double bid = 0;
         //check we're working on expected array before doing brittle operations
         if(!(message[0] == '[' && message[11] == '[')){
             throw ARB_ERR_UNEXPECTED_STR;
@@ -691,7 +705,7 @@ private:
     void populate_poloniex_balances(){
 
         char post_data[120];
-        strcpy(post_data, "command=returnBalances");
+        strcpy(post_data, "command=returnCompleteBalances");
 
         CURL* curl = curl_easy_init();
         struct curl_slist *header_slist = nullptr;
@@ -703,9 +717,23 @@ private:
         rapidjson::Document balance_json;
         balance_json.Parse(http_data.c_str());
 
+        double btc_val;
+        double btc_min = 1000;
+        double btc_max = 0;
         //convert to hash for fast lookups. Is this necessary? Should the currency be stored as JSON?
         for(const auto& currency : balance_json.GetObject()){
-            _balances[currency.name.GetString()] = stod(currency.value.GetString());
+            btc_val = stof(currency.value["btcValue"].GetString());
+            if(btc_val > 0.0001 && btc_val > btc_max){
+                btc_max = btc_val;
+            }
+            if(btc_val > 0.0001 && btc_val < btc_min){
+                btc_min = btc_val;
+            }
+            _balances[currency.name.GetString()] = stod(currency.value["available"].GetString());
+        }
+        if(btc_max * balance_utilization > btc_min){
+            cout << "Error, Min/Max BTC balance values " << btc_min << "/" << btc_max << " >" << balance_utilization << " balance utilization" << endl;
+            throw ARB_ERR_INSUFFICIENT_FUNDS;
         }
     }
 

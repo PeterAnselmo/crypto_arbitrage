@@ -270,6 +270,9 @@ TEST(CryptoExchange, EntireWSequenceExecuted){
                                                     "http://anselmo.me/poloniex/tradingapi2.php",
                                                     "ws://anselmo.me:8282");
 
+    double starting_btc = poloniex->balance("BTC");
+    double utilized_amount = starting_btc * balance_utilization;
+    double net_profit = 0.28650951 * utilized_amount;
 
     poloniex->populate_trade_pairs();
     trade_pair tp;
@@ -301,12 +304,7 @@ TEST(CryptoExchange, EntireWSequenceExecuted){
     tp = poloniex->get_pair(198, 's');
     ASSERT_FLOAT_EQ(0.00421197, tp.quote);
 
-    //1 Gas * sell@.00421197 * .9975 fee
-    ASSERT_FLOAT_EQ(0.00420144, poloniex->balance("BTC"));
-    //.0044ETH / buty@.00421197 * .9975 fee
-    ASSERT_FLOAT_EQ(1.00085879, poloniex->balance("GAS"));
-    //.00315BTC / buy@.00741 * .9975
-    ASSERT_FLOAT_EQ(0.04240385, poloniex->balance("ETH"));
+    ASSERT_FLOAT_EQ(starting_btc + net_profit, poloniex->balance("BTC"));
 }
 TEST(CryptoExchange, BuyAmountCorrectlyCalculated){
 

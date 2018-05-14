@@ -18,6 +18,7 @@
 #define ARB_ERR_TRADE_NOT_EX 31
 #define ARB_ERR_UNEXPECTED_STR 41
 #define ARB_ERR_UNKNOWN_PAIR 51
+#define ARB_TRADE_EXECUTED 100
 
 constexpr bool ARB_DEBUG = false;
 
