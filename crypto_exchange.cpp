@@ -15,8 +15,13 @@
 
 using namespace std;
 
-//requires all balances be within this amount of each other
-constexpr float balance_utilization = 0.65;
+#define CHANNEL_TICKER 1002
+#define CHANNEL_HEARTBEAT 1010
+
+//requires all balances be within this amount of each other so that
+//we can run the trade in any order and have sufficient funds
+constexpr float balance_utilization = 0.80;
+constexpr int print_interval = 200;
 
 struct trade_seq {
     vector<trade_pair> trades;
@@ -84,6 +89,7 @@ class crypto_exchange {
     array<bool, 300> _funded_pairs;
     const char* _api_keys[3];
     const char* _api_secrets[3];
+    std::chrono::steady_clock::time_point _segment_begin, _segment_end;
 
 public:
 
@@ -114,7 +120,6 @@ public:
             _api_secrets[2] = getenv("ARB_API_SECRET_2");
 
             _market_fee = get_poloniex_taker_fee();
-            populate_balances();
         } else {
             cout << "Unknown Exchange" << endl;
         }
@@ -198,19 +203,30 @@ public:
         out_msg.set_utf8_message(command);
         client.send(out_msg).wait();
 
+        command = "{\"command\":\"subscribe\",\"channel\":\"BTC_ETH\"}";
+        out_msg.set_utf8_message(command);
+        client.send(out_msg).wait();
+
+  command = "{\"command\":\"subscribe\",\"channel\":\"BTC_ZEC\"}";
+  out_msg.set_utf8_message(command);
+  client.send(out_msg).wait();
+
+  command = "{\"command\":\"subscribe\",\"channel\":\"ETH_ZEC\"}";
+  out_msg.set_utf8_message(command);
+  client.send(out_msg).wait();
+
         std::chrono::steady_clock::time_point begin, end;
         begin = std::chrono::steady_clock::now();
         bool data_stale = true;
         int count = 0;
         int elapsed;
         float throughput, max_throughput = 0;
-        constexpr int print_interval = 100;
         while(true){
             client.receive().then([](web::websockets::client::websocket_incoming_message in_msg) {
                 return in_msg.extract_string();
             }).then([&](string body) {
                 if(body == "[1002,1]" || body == "[1010]"){//sometimes it just spits this back for a while
-                    cout << "Skipping Bad Data..." << endl;
+                    //cout << "Skipping Bad Data..." << endl;
                     data_stale = true;
                 } else {
                     if(data_stale == true){//first time back in the loop
@@ -218,15 +234,18 @@ public:
                         populate_trade_pairs();
                         data_stale = false;
                     }
+                    _segment_begin = std::chrono::steady_clock::now();
                     process_ticker_update(body);
                     trade_seq* profitable_trade = nullptr;
 
+                    /*
                     if(find_trade(profitable_trade)){
                         execute_trades(profitable_trade);
 
                         delete profitable_trade;
                         throw ARB_TRADE_EXECUTED;
                     }
+                    */
                     if(++count == print_interval){
                         count = 0;
                         end = std::chrono::steady_clock::now();
@@ -236,7 +255,7 @@ public:
                             max_throughput = throughput;
                         }
 
-                        cout << "100 Ticker Updates Processed in " << elapsed << " milliseconds (" << throughput << "/s, max: " << max_throughput << "/s)." << endl;
+                        cout << print_interval << " Ticker Updates Processed in " << elapsed << " milliseconds (" << throughput << "/s, max: " << max_throughput << "/s)." << endl;
                         begin = std::chrono::steady_clock::now();
                     }
                 }
@@ -281,7 +300,6 @@ public:
                         if(ts->add_pair(tp2)){
                             if(ts->add_pair(tp3)){
                                 ts->net_gain = net;
-                                cout << "Profitable Trade Found: " << endl;
                                 ts->print_seq();
                                 return true;
                             }
@@ -334,6 +352,9 @@ public:
 
         /* we start some action by calling perform right away */ 
         curl_multi_perform(multi_handle, &curl_still_running);
+
+        _segment_end = std::chrono::steady_clock::now();
+        cout << std::chrono::duration_cast<std::chrono::microseconds>(_segment_end - _segment_begin).count() << " microseconds processing time." << endl;
 
         do {
             struct timeval timeout;
@@ -544,50 +565,47 @@ private:
     }
 
     void process_ticker_update(string message){
-        //    cout << "Processing Message:" << message << endl;
+        cout << chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() << " ";
+        cout << "Processing Message:" << message << endl;
         //[1002,null,[126,"238.99999999","239.25328845","239.07169998","-0.00905593","549272.05317976","2348.39754632",0,"241.63999999","228.00000000"]])
 
-        //begin really funky string parsing. It's two lines of code to turn the whole thing into a json document, but this is a bit faster
-        int pair_id = 0;
-        double ask = 0;
-        double bid = 0;
-        //check we're working on expected array before doing brittle operations
-        if(!(message[0] == '[' && message[11] == '[')){
-            throw ARB_ERR_UNEXPECTED_STR;
-        }
-        int start=12; //location of trade pair id
-        int end = message.size(); //
-        int quote_num = 0;
-        for(int i=12; i<end; ++i){
-            if(quote_num == 0 && message[i] == ','){
-                //cout << "Parsed ID:" << message.substr(start, i-start) << endl;
-                pair_id = stoi(message.substr(start, i-start));
-            }
-            if(message[i] == '"'){
-                ++quote_num;
-                if(quote_num == 3){ //lowestAsk
-                    start = i+1;
-                }else if(quote_num == 4){//end of lowestAsk
-                 //   cout << "Parsed ask:" << message.substr(start, i-start) << endl;
-                    ask = stod(message.substr(start, i-start));
-                } else if(quote_num == 5){ //highestBid
-                    start = i+1;
-                } else if(quote_num == 6){//end of highestBid
-                  //  cout << "Parsed bid:" << message.substr(start, i-start) << endl;
-                    bid = stod(message.substr(start, i-start));
-                    break;
-                }
-            }
-        }
-
-        /*
         rapidjson::Document ticker_update;
         ticker_update.Parse(message.c_str());
-        int pair_id = ticker_update[2][0].GetInt();
-        double ask = stod(ticker_update[2][2].GetString());
-        double bid = stod(ticker_update[2][3].GetString());
-        */
 
+        int channel_id = ticker_update[0].GetInt();
+        switch(channel_id){
+            case CHANNEL_TICKER:{
+                int pair_id = ticker_update[2][0].GetInt();
+                double ask = stod(ticker_update[2][2].GetString());
+                double bid = stod(ticker_update[2][3].GetString());
+                cout << "Ticker Update. Pair:" << pair_id << " ask:" << ask << " bid:" << bid << endl;
+            } break;
+            default: {
+                int pair_id = ticker_update[0].GetInt();
+                int sequence_id = ticker_update[1].GetInt();
+                cout << "Order Update. Pair:" << pair_id << " Sequence:" << sequence_id << endl;
+                for(const auto& order : ticker_update[2].GetArray()){
+                    if(order[0] == "o"){
+                        cout << "Modify Order. " << ((order[1] == 1) ? "bid: " : "ask: ") << order[2].GetString() << " amount:" << order[3].GetString() << endl;
+                    }else if(order[0] == "t"){
+                        cout << "Trade. ID:" << order[1].GetString()
+                             << ((order[2] == 1) ? " buy: " : " sell: " ) << order[3].GetString()
+                             << " amount:" << order[4].GetString() << endl;
+                    }else if(order[0] == "i"){
+                        for(const auto& ask_order : order[1]["orderBook"][0].GetObject()){
+                            cout << "Ask order: " << ask_order.name.GetString() << " amount:" << ask_order.value.GetString() << endl;
+                        }
+                        for(const auto& bid_order : order[1]["orderBook"][1].GetObject()){
+                            cout << "Bid order: " << bid_order.name.GetString() << " amount:" << bid_order.value.GetString() << endl;
+                        }
+
+
+                    }
+
+                }
+             } break;
+        }
+/*
         if(!_funded_pairs[pair_id]){
             return;
         }
@@ -609,6 +627,7 @@ private:
                 return;
             }
         }
+        */
     }
 
     void set_curl_post_options(CURL* curl, curl_slist*& header_slist, char* post_data, int api_num = 0){
@@ -644,8 +663,8 @@ private:
         // Don't bother trying IPv6, which would increase DNS resolution time.
         curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
-        // Don't wait forever, time out after 15 seconds.
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+        // Don't wait forever, time out after 20 seconds.
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
 
 
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -731,10 +750,12 @@ private:
             }
             _balances[currency.name.GetString()] = stod(currency.value["available"].GetString());
         }
+        /*
         if(btc_max * balance_utilization > btc_min){
             cout << "Error, Min/Max BTC balance values " << btc_min << "/" << btc_max << " >" << balance_utilization << " balance utilization" << endl;
             throw ARB_ERR_INSUFFICIENT_FUNDS;
         }
+        */
     }
 
     void populate_poloniex_trade_pairs(){

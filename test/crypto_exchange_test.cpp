@@ -18,6 +18,7 @@ TEST(CryptoExchange, PoloniexIDsArePopulated){
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
     ASSERT_EQ("BTC_DASH", poloniex->pair_string(24));
     ASSERT_EQ("XMR_LTC", poloniex->pair_string(137));
@@ -41,9 +42,10 @@ TEST(CryptoExchange, PoloniexBalancesArePopulated){
     /* can't check before, added to constructor
     ASSERT_FLOAT_EQ(0.0, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(0.0, poloniex->balance("XMR"));
+    */
 
     poloniex->populate_balances();
-    */
+
 
     ASSERT_FLOAT_EQ(1.000, poloniex->balance("BTC"));
     ASSERT_FLOAT_EQ(2.500, poloniex->balance("BCH"));
@@ -59,6 +61,7 @@ TEST(CryptoExchange, PoloniexTradePairsRetrieved){
 
     ASSERT_EQ(0, poloniex->num_trade_pairs());
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
 
     //198 total, 20 are funded
@@ -71,6 +74,7 @@ TEST(CryptoExchange, PoloniexTradePairsRetrieved2){
                                                     "http://anselmo.me/poloniex/tradingapi2.php",
                                                     "ws://anselmo.me:8282");
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
     trade_pair tp;
 
@@ -93,6 +97,7 @@ TEST(CryptoExchange, PoloniexWebSockerPairIsRetrieved){
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
 
     trade_pair tp1 = poloniex->get_pair(149, 'b');
@@ -117,6 +122,7 @@ TEST(CryptoExchange, PoloniexFindsProfitableTrade){
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
 
     trade_seq* profitable_trade = nullptr;
@@ -129,6 +135,7 @@ TEST(CryptoExchange, PoloniexFailsUnderfundedSell){
                                                     "https://anselmo.me/poloniex/public.php?command=returnTicker",
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
+    poloniex->populate_balances();
 
     trade_pair tp;
     strcpy(tp.sell, "XMR");
@@ -149,6 +156,7 @@ TEST(CryptoExchange, PoloniexFailsMispricedSell){
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
 
+    poloniex->populate_balances();
 	poloniex->populate_trade_pairs();
     trade_pair tp;
     strcpy(tp.sell, "XRP");
@@ -169,6 +177,7 @@ TEST(CryptoExchange, PoloniexSellSucceeds){
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
     trade_pair tp;
     strcpy(tp.sell, "XRP");
@@ -196,6 +205,7 @@ TEST(CryptoExchange, PoloniexFailsMispricedBuy){
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
     trade_pair tp;
     strcpy(tp.sell, "BTC");
@@ -223,6 +233,7 @@ TEST(CryptoExchange, PoloniexBuySucceeds){
                                                     "http://anselmo.me/poloniex/tradingapi.php",
                                                     "ws://anselmo.me:8181");
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
     trade_pair tp;
     strcpy(tp.sell, "BTC");
@@ -254,6 +265,7 @@ TEST(CryptoExchange, EntireSequenceExcecuted){
 
 
     ASSERT_NO_THROW({
+        poloniex->populate_balances();
         poloniex->populate_trade_pairs();
 
         trade_seq* profitable_trade = nullptr;
@@ -270,6 +282,7 @@ TEST(CryptoExchange, EntireWSequenceExecuted){
                                                     "http://anselmo.me/poloniex/tradingapi2.php",
                                                     "ws://anselmo.me:8282");
 
+    poloniex->populate_balances();
     double starting_btc = poloniex->balance("BTC");
     double utilized_amount = starting_btc * balance_utilization;
     double net_profit = 0.28650951 * utilized_amount;
@@ -313,6 +326,7 @@ TEST(CryptoExchange, BuyAmountCorrectlyCalculated){
                                                     "http://anselmo.me/poloniex/tradingapi3.php",
                                                     "ws://anselmo.me:8282");
 
+    poloniex->populate_balances();
     poloniex->populate_trade_pairs();
     poloniex->print_trade_pairs();
 
