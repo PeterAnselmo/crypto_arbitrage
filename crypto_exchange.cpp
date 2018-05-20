@@ -6,8 +6,10 @@
 #include <iomanip>
 #include <chrono>
 #include <string>
+#include <vector>
 #include "arb_util.cpp"
 #include "trade_pair.cpp"
+#include "order_book.cpp"
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
@@ -20,8 +22,9 @@ using namespace std;
 
 //requires all balances be within this amount of each other so that
 //we can run the trade in any order and have sufficient funds
-constexpr float balance_utilization = 0.80;
-constexpr int print_interval = 200;
+constexpr int max_trade_pairs = 300;
+constexpr float balance_utilization = 0.75;
+constexpr int print_interval = 1000;
 
 struct trade_seq {
     vector<trade_pair> trades;
@@ -85,8 +88,10 @@ class crypto_exchange {
     map<string, double> _balances;
     vector<trade_pair> _pairs;
     CURL* _curl_get;
-    array<string, 300> _pair_ids;
-    array<bool, 300> _funded_pairs;
+    array<string, max_trade_pairs> _pair_names;
+    array<bool, max_trade_pairs> _funded_pairs;
+    array<unique_ptr<order_book>, max_trade_pairs> _order_books;
+    array<unsigned long, max_trade_pairs> _order_sequences;
     const char* _api_keys[3];
     const char* _api_secrets[3];
     std::chrono::steady_clock::time_point _segment_begin, _segment_end;
@@ -138,13 +143,13 @@ public:
     }
 
     string pair_string(int id) const{
-        return _pair_ids[id];
+        return _pair_names[id];
     }
 
     void print_ids() const{
-        int size = _pair_ids.size();
+        int size = _pair_names.size();
         for(int i=0; i<size; ++i){
-            cout << "ID:" << i << _pair_ids[i] << endl;
+            cout << "ID:" << i << _pair_names[i] << endl;
         }
     }
 
@@ -179,7 +184,7 @@ public:
         }
     }
 
-    trade_pair get_pair(int id, char action){
+    trade_pair get_pair(unsigned int id, char action){
         for(auto& tp : _pairs){
             if(id == tp.exchange_id && action == tp.action){
                 return tp;
@@ -194,26 +199,28 @@ public:
 
     int monitor_trades(){
         web::websockets::client::websocket_client client;
-        //client.connect("ws://anselmo.me:8181").wait();
         client.connect(_ws_url).wait();
 
-        string command = "{\"command\":\"subscribe\",\"channel\":1002}";
-
         web::websockets::client::websocket_outgoing_message out_msg;
+        string command;
+
+        command = "{\"command\":\"subscribe\",\"channel\":1002}";
         out_msg.set_utf8_message(command);
         client.send(out_msg).wait();
 
-        command = "{\"command\":\"subscribe\",\"channel\":\"BTC_ETH\"}";
-        out_msg.set_utf8_message(command);
-        client.send(out_msg).wait();
-
-  command = "{\"command\":\"subscribe\",\"channel\":\"BTC_ZEC\"}";
-  out_msg.set_utf8_message(command);
-  client.send(out_msg).wait();
-
-  command = "{\"command\":\"subscribe\",\"channel\":\"ETH_ZEC\"}";
-  out_msg.set_utf8_message(command);
-  client.send(out_msg).wait();
+        bool any_funded = false;
+        for(int pair_id=0; pair_id<max_trade_pairs; ++pair_id){
+            if(_funded_pairs[pair_id]){
+                any_funded = true;
+                command = "{\"command\":\"subscribe\",\"channel\":\"" + _pair_names[pair_id] + "\"}";
+                out_msg.set_utf8_message(command);
+                client.send(out_msg).wait();
+            }
+        }
+        if(!any_funded){
+            cout << "ERROR, Monotor trades called with no funded pairs. Exiting." << endl;
+            throw ARB_ERR_UNKNOWN_PAIR;
+        }
 
         std::chrono::steady_clock::time_point begin, end;
         begin = std::chrono::steady_clock::now();
@@ -225,7 +232,11 @@ public:
             client.receive().then([](web::websockets::client::websocket_incoming_message in_msg) {
                 return in_msg.extract_string();
             }).then([&](string body) {
-                if(body == "[1002,1]" || body == "[1010]"){//sometimes it just spits this back for a while
+                print_ts();
+                cout << "Message:" << body << endl;
+                if(body == "[1010]"){
+                    //heartbeat
+                }else if(body == "[1002,1]"){//sometimes it just spits this back for a while
                     //cout << "Skipping Bad Data..." << endl;
                     data_stale = true;
                 } else {
@@ -235,17 +246,18 @@ public:
                         data_stale = false;
                     }
                     _segment_begin = std::chrono::steady_clock::now();
-                    process_ticker_update(body);
+                    trade_pair* altered_pair = nullptr;
+                    process_ticker_update(body, altered_pair);
                     trade_seq* profitable_trade = nullptr;
 
-                    /*
                     if(find_trade(profitable_trade)){
                         execute_trades(profitable_trade);
+
+                        print_market_data(profitable_trade);
 
                         delete profitable_trade;
                         throw ARB_TRADE_EXECUTED;
                     }
-                    */
                     if(++count == print_interval){
                         count = 0;
                         end = std::chrono::steady_clock::now();
@@ -300,6 +312,7 @@ public:
                         if(ts->add_pair(tp2)){
                             if(ts->add_pair(tp3)){
                                 ts->net_gain = net;
+                                print_ts();
                                 ts->print_seq();
                                 return true;
                             }
@@ -482,6 +495,13 @@ public:
         return all_trades_executed;
     }
 
+    void print_market_data(trade_seq*& trade_seq) const{
+        for(const auto& tp : trade_seq->trades){
+            cout << "Pair Summary: ID:" << tp.exchange_id << ", " << tp.sell << ">" << tp.buy << " " << tp.action << "@" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << endl;
+            _order_books[tp.exchange_id]->print_book();
+        }
+    }
+
     bool any_open_orders(){
 
         char post_data[120];
@@ -564,52 +584,12 @@ private:
         }
     }
 
-    void process_ticker_update(string message){
-        cout << chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() << " ";
-        cout << "Processing Message:" << message << endl;
-        //[1002,null,[126,"238.99999999","239.25328845","239.07169998","-0.00905593","549272.05317976","2348.39754632",0,"241.63999999","228.00000000"]])
+    inline void process_ticker_ticker(unsigned int pair_id, const rapidjson::Document& ticker_update){
 
-        rapidjson::Document ticker_update;
-        ticker_update.Parse(message.c_str());
+        double ask = stod(ticker_update[2][2].GetString());
+        double bid = stod(ticker_update[2][3].GetString());
 
-        int channel_id = ticker_update[0].GetInt();
-        switch(channel_id){
-            case CHANNEL_TICKER:{
-                int pair_id = ticker_update[2][0].GetInt();
-                double ask = stod(ticker_update[2][2].GetString());
-                double bid = stod(ticker_update[2][3].GetString());
-                cout << "Ticker Update. Pair:" << pair_id << " ask:" << ask << " bid:" << bid << endl;
-            } break;
-            default: {
-                int pair_id = ticker_update[0].GetInt();
-                int sequence_id = ticker_update[1].GetInt();
-                cout << "Order Update. Pair:" << pair_id << " Sequence:" << sequence_id << endl;
-                for(const auto& order : ticker_update[2].GetArray()){
-                    if(order[0] == "o"){
-                        cout << "Modify Order. " << ((order[1] == 1) ? "bid: " : "ask: ") << order[2].GetString() << " amount:" << order[3].GetString() << endl;
-                    }else if(order[0] == "t"){
-                        cout << "Trade. ID:" << order[1].GetString()
-                             << ((order[2] == 1) ? " buy: " : " sell: " ) << order[3].GetString()
-                             << " amount:" << order[4].GetString() << endl;
-                    }else if(order[0] == "i"){
-                        for(const auto& ask_order : order[1]["orderBook"][0].GetObject()){
-                            cout << "Ask order: " << ask_order.name.GetString() << " amount:" << ask_order.value.GetString() << endl;
-                        }
-                        for(const auto& bid_order : order[1]["orderBook"][1].GetObject()){
-                            cout << "Bid order: " << bid_order.name.GetString() << " amount:" << bid_order.value.GetString() << endl;
-                        }
-
-
-                    }
-
-                }
-             } break;
-        }
-/*
-        if(!_funded_pairs[pair_id]){
-            return;
-        }
-
+        //cout << "Ticker Update. Pair:" << pair_id << " ask:" << ask << " bid:" << bid << endl;
         int trades_seen = 0;
         for(vector<trade_pair>::iterator it = _pairs.begin(); it != _pairs.end(); ++it){
             if(it->exchange_id != pair_id){
@@ -627,7 +607,85 @@ private:
                 return;
             }
         }
-        */
+    }
+
+
+    void process_ticker_update(string message, trade_pair*& altered_pair){
+
+        rapidjson::Document ticker_update;
+        ticker_update.Parse(message.c_str());
+
+        int channel_id = ticker_update[0].GetInt();
+        unsigned int pair_id;
+        switch(channel_id){
+
+            //[1002,null,[126,"238.99999999","239.25328845","239.07169998","-0.00905593","549272.05317976","2348.39754632",0,"241.63999999","228.00000000"]])
+            case CHANNEL_TICKER:{
+                pair_id = ticker_update[2][0].GetInt();
+                if(_funded_pairs[pair_id]){
+                    process_ticker_ticker(pair_id, ticker_update);
+                }
+            } break;
+
+            //[148,531912534,[["o",0,"0.08534593","0.00000000"],["o",0,"0.08519999","49.35309829"]]]
+            default: {
+                pair_id = ticker_update[0].GetInt();
+                unsigned int sequence_id = ticker_update[1].GetInt();
+                //cout << "Order Update. Pair:" << pair_id << " Sequence:" << sequence_id << endl;
+                if(sequence_id != ++_order_sequences[pair_id]){
+                    cout << "SEQUENCE MISMATCH!! ORDERS MAY BE MISSING!!!" << endl;
+                    _order_sequences[pair_id] = sequence_id;
+                }
+                for(const auto& order : ticker_update[2].GetArray()){
+                    if(order[0] == "o"){
+                        //cout << "Modify Order. " << ((order[1] == 1) ? "bid: " : "ask: ") << order[2].GetString() << " amount:" << order[3].GetString() << endl;
+                        if(order[1] == 1){
+                            //returns true if market price was updated
+                            if(_order_books[pair_id]->record_buy(stod(order[2].GetString()), stod(order[3].GetString()))){
+                                for(auto& tp : _pairs){
+                                    if(pair_id == tp.exchange_id && 's' == tp.action){
+                                        double bid_price = _order_books[pair_id]->highest_bid();
+                                        tp.quote = bid_price;
+                                        tp.net = (1 - _market_fee) * bid_price;
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            if(_order_books[pair_id]->record_sell(stod(order[2].GetString()), stod(order[3].GetString()))){
+                                for(auto& tp : _pairs){
+                                    if(pair_id == tp.exchange_id && 'b' == tp.action){
+                                        double ask_price = _order_books[pair_id]->lowest_ask();
+                                        tp.quote = ask_price;
+                                        tp.net = (1 - _market_fee) / ask_price;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    //["t","43464542",1,"0.08514500","0.12873209",1526828523]
+                    }else if(order[0] == "t"){
+                        /*
+                        cout << "Trade. ID:" << order[1].GetString()
+                             << ((order[2] == 1) ? " buy: " : " sell: " ) << order[3].GetString()
+                             << " amount:" << order[4].GetString() << endl;
+                             */
+                        _order_books[pair_id]->record_trade(stod(order[3].GetString()), stod(order[4].GetString()), ((order[2] == 1) ? 'b' : 's' ));
+                    }else if(order[0] == "i"){
+                        for(const auto& ask_order : order[1]["orderBook"][0].GetObject()){
+                            _order_books[pair_id]->record_sell(stod(ask_order.name.GetString()), stod(ask_order.value.GetString()));
+                        }
+                        for(const auto& bid_order : order[1]["orderBook"][1].GetObject()){
+                            _order_books[pair_id]->record_buy(stod(bid_order.name.GetString()), stod(bid_order.value.GetString()));
+                        }
+                    }else {
+                        cout << "ERROR, Unknown opration in ticker update" << endl;
+                        throw ARB_ERR_BAD_OPTION;
+                    }
+                }
+             } break;
+        }
+
     }
 
     void set_curl_post_options(CURL* curl, curl_slist*& header_slist, char* post_data, int api_num = 0){
@@ -750,12 +808,10 @@ private:
             }
             _balances[currency.name.GetString()] = stod(currency.value["available"].GetString());
         }
-        /*
         if(btc_max * balance_utilization > btc_min){
             cout << "Error, Min/Max BTC balance values " << btc_min << "/" << btc_max << " >" << balance_utilization << " balance utilization" << endl;
             throw ARB_ERR_INSUFFICIENT_FUNDS;
         }
-        */
     }
 
     void populate_poloniex_trade_pairs(){
@@ -770,6 +826,7 @@ private:
         const char* market;
         const char* it;
         const char* sep_it;
+        unsigned int pair_id;
         for(const auto& listed_pair : products.GetObject()){
             if(ARB_DEBUG){
                 cout << "Import Pair: " << listed_pair.name.GetString()
@@ -777,7 +834,9 @@ private:
                      << " ask: " << listed_pair.value["lowestAsk"].GetString() << endl;
             }
 
-	    _pair_ids[listed_pair.value["id"].GetInt()] = listed_pair.name.GetString();
+            pair_id = listed_pair.value["id"].GetInt();
+            _pair_names[pair_id] = listed_pair.name.GetString();
+            _order_books[pair_id] = unique_ptr<order_book>(new order_book);
 
             //brittle, dangerous, fast way to split on known-delimiter market string
             market = listed_pair.name.GetString();
@@ -793,11 +852,11 @@ private:
             memcpy(curr_2, sep_it+1, it - sep_it);
 
             if(_balances[curr_1] >= 0.001 && _balances[curr_2] >= 0.001){
-                _funded_pairs[listed_pair.value["id"].GetInt()] = true;
+                _funded_pairs[pair_id] = true;
 
                 strcpy(tp.sell, curr_2);
                 strcpy(tp.buy, curr_1);
-                tp.exchange_id = listed_pair.value["id"].GetInt();
+                tp.exchange_id = pair_id;
                 tp.quote = stod(listed_pair.value["highestBid"].GetString());
                 tp.net = (1 - _market_fee) * tp.quote;
                 tp.action = 's';
@@ -805,7 +864,7 @@ private:
 
                 strcpy(tp.sell, curr_1);
                 strcpy(tp.buy, curr_2);
-                tp.exchange_id = listed_pair.value["id"].GetInt();
+                tp.exchange_id = pair_id;
                 tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
                 tp.net = (1 - _market_fee) / tp.quote;
                 tp.action = 'b';
@@ -841,7 +900,7 @@ private:
             strcat(post_data, "sell");
         }
         strcat(post_data, "&currencyPair=");
-        strcat(post_data, _pair_ids[pair_id].c_str());
+        strcat(post_data, _pair_names[pair_id].c_str());
         strcat(post_data, "&rate=");
         strcat(post_data, rate_s);
         strcat(post_data, "&amount=");

@@ -24,27 +24,26 @@ int main(int argc, char* argv[]){
     */
 
         //std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-    while(true){
+    //while(true){
 
-        /*
         if(poloniex->any_open_orders()){
             cout << "Open Orders Found. Sleeping for " << open_order_wait << " seconds..." << endl;
             sleep(open_order_wait);
         } else {
-        */
             poloniex->populate_balances();
             poloniex->populate_trade_pairs();
+
             try{
                 poloniex->monitor_trades();
             } catch (int exception){
                 if(exception == ARB_TRADE_EXECUTED) {
-                    continue;
+                  //  continue;
                 } else {
-                    return exception;
+                  //  return exception;
                 }
             }
-       // }
-    }
+        }
+    //}
 
         /*
         std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();

@@ -1,4 +1,4 @@
-arb: arb.cpp arb_util.cpp crypto_exchange.cpp
+arb: arb.cpp arb_util.cpp crypto_exchange.cpp order_book.cpp
 	g++ arb.cpp -std=c++11 -Wall -O3 -lcurl -lcryptopp -lpthread -lm -lcpprest -o arb
 trade: trade.cpp arb_util.cpp crypto_exchange.cpp
 	g++ trade.cpp -std=c++11 -Wall -O2 -lcurl -lcryptopp -lpthread -lm -lcpprest -o trade

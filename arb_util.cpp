@@ -38,6 +38,10 @@ namespace
     }
 }
 
+inline void print_ts(){
+    cout << chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() << " ";
+}
+
 void set_curl_get_options(CURL* curl, const std::string url){
 
     // Set remote URL.

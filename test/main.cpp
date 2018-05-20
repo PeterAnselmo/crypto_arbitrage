@@ -1,4 +1,5 @@
 #include "crypto_exchange_test.cpp"
+#include "order_book_test.cpp"
 
 int main(int argc, char **argv){
 

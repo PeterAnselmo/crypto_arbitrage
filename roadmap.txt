@@ -1,5 +1,6 @@
 
 To-Do:
+-handle case of recovering streams from bad data
 -inspect with valgrind. seems to slow down after running a while.
 -cleanup tests, update to use multi output
 
