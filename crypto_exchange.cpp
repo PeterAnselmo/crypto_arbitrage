@@ -23,7 +23,7 @@ using namespace std;
 //requires all balances be within this amount of each other so that
 //we can run the trade in any order and have sufficient funds
 constexpr int max_trade_pairs = 300;
-constexpr float balance_utilization = 0.75;
+constexpr float balance_utilization = 0.70;
 constexpr int print_interval = 1000;
 
 struct trade_seq {
@@ -228,6 +228,7 @@ public:
         int count = 0;
         int elapsed;
         float throughput, max_throughput = 0;
+        long int last_pair_id;
         while(true){
             client.receive().then([](web::websockets::client::websocket_incoming_message in_msg) {
                 return in_msg.extract_string();
@@ -246,11 +247,10 @@ public:
                         data_stale = false;
                     }
                     _segment_begin = std::chrono::steady_clock::now();
-                    trade_pair* altered_pair = nullptr;
-                    process_ticker_update(body, altered_pair);
+                    last_pair_id = process_ticker_update(body);
                     trade_seq* profitable_trade = nullptr;
 
-                    if(find_trade(profitable_trade)){
+                    if(find_trade(last_pair_id, profitable_trade)){
                         execute_trades(profitable_trade);
 
                         print_market_data(profitable_trade);
@@ -279,10 +279,13 @@ public:
     }
 
 
-    bool find_trade(trade_seq*& ts){
+    bool find_trade(unsigned int starting_pair_id, trade_seq*& ts){
 
         float net;
         for(const auto& tp1 : _pairs){
+            if(tp1.exchange_id != starting_pair_id){
+                continue;
+            }
             for(const auto& tp2 : _pairs) {
                 if(strcmp(tp1.buy, tp2.sell) != 0){
                     continue;
@@ -610,7 +613,7 @@ private:
     }
 
 
-    void process_ticker_update(string message, trade_pair*& altered_pair){
+    unsigned int process_ticker_update(string message){
 
         rapidjson::Document ticker_update;
         ticker_update.Parse(message.c_str());
@@ -636,31 +639,19 @@ private:
                     cout << "SEQUENCE MISMATCH!! ORDERS MAY BE MISSING!!!" << endl;
                     _order_sequences[pair_id] = sequence_id;
                 }
+                bool any_buy_updates = false;
+                bool any_sell_updates = false;
                 for(const auto& order : ticker_update[2].GetArray()){
                     if(order[0] == "o"){
                         //cout << "Modify Order. " << ((order[1] == 1) ? "bid: " : "ask: ") << order[2].GetString() << " amount:" << order[3].GetString() << endl;
                         if(order[1] == 1){
                             //returns true if market price was updated
                             if(_order_books[pair_id]->record_buy(stod(order[2].GetString()), stod(order[3].GetString()))){
-                                for(auto& tp : _pairs){
-                                    if(pair_id == tp.exchange_id && 's' == tp.action){
-                                        double bid_price = _order_books[pair_id]->highest_bid();
-                                        tp.quote = bid_price;
-                                        tp.net = (1 - _market_fee) * bid_price;
-                                        break;
-                                    }
-                                }
+                                any_buy_updates = true;
                             }
                         } else {
                             if(_order_books[pair_id]->record_sell(stod(order[2].GetString()), stod(order[3].GetString()))){
-                                for(auto& tp : _pairs){
-                                    if(pair_id == tp.exchange_id && 'b' == tp.action){
-                                        double ask_price = _order_books[pair_id]->lowest_ask();
-                                        tp.quote = ask_price;
-                                        tp.net = (1 - _market_fee) / ask_price;
-                                        break;
-                                    }
-                                }
+                                any_sell_updates = true;
                             }
                         }
                     //["t","43464542",1,"0.08514500","0.12873209",1526828523]
@@ -670,7 +661,8 @@ private:
                              << ((order[2] == 1) ? " buy: " : " sell: " ) << order[3].GetString()
                              << " amount:" << order[4].GetString() << endl;
                              */
-                        _order_books[pair_id]->record_trade(stod(order[3].GetString()), stod(order[4].GetString()), ((order[2] == 1) ? 'b' : 's' ));
+
+                        //_order_books[pair_id]->record_trade(stod(order[3].GetString()), stod(order[4].GetString()), ((order[2] == 1) ? 'b' : 's' ));
                     }else if(order[0] == "i"){
                         for(const auto& ask_order : order[1]["orderBook"][0].GetObject()){
                             _order_books[pair_id]->record_sell(stod(ask_order.name.GetString()), stod(ask_order.value.GetString()));
@@ -683,8 +675,29 @@ private:
                         throw ARB_ERR_BAD_OPTION;
                     }
                 }
+                if(any_buy_updates){
+                    for(auto& tp : _pairs){
+                        if(pair_id == tp.exchange_id && 's' == tp.action){
+                            double bid_price = _order_books[pair_id]->highest_bid();
+                            tp.quote = bid_price;
+                            tp.net = (1 - _market_fee) * bid_price;
+                            break;
+                        }
+                    }
+                }
+                if(any_sell_updates){
+                    for(auto& tp : _pairs){
+                        if(pair_id == tp.exchange_id && 'b' == tp.action){
+                            double ask_price = _order_books[pair_id]->lowest_ask();
+                            tp.quote = ask_price;
+                            tp.net = (1 - _market_fee) / ask_price;
+                            break;
+                        }
+                    }
+                }
              } break;
         }
+        return pair_id;
 
     }
 
