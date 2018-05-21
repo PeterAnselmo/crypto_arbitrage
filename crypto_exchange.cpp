@@ -10,6 +10,7 @@
 #include "arb_util.cpp"
 #include "trade_pair.cpp"
 #include "order_book.cpp"
+#include "trade_seq.cpp"
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
 #include "rapidjson/stringbuffer.h"
@@ -26,58 +27,6 @@ constexpr int max_trade_pairs = 300;
 constexpr float balance_utilization = 0.70;
 constexpr int print_interval = 1000;
 
-struct trade_seq {
-    vector<trade_pair> trades;
-    vector<double> amounts;
-    double net_gain = 1;
-    double next_sell_amount = 0;
-
-    vector<string> currencies() const{
-        vector<string> _currencies;
-        for(const trade_pair& tp : trades){
-            _currencies.push_back(tp.sell);
-        }
-        return _currencies;
-    }
-    bool add_pair(trade_pair new_trade_pair, double passed_amount = 0){
-        
-        //first in a sequence, start with balance
-        double amount;
-        if(passed_amount != 0){
-            amount = passed_amount;
-        } else {
-            amount = next_sell_amount;
-        }
-        next_sell_amount = amount * new_trade_pair.net;
-
-        if(amount < 0.001){
-            cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
-                 << amount << "@" << new_trade_pair.quote << " has Insufficient starting balance. Invalidating." << endl;
-            return false;
-        }
-        if(new_trade_pair.action == 'b'){//have sell amount, convert for buy amount
-            amount = amount / new_trade_pair.quote;
-        }
-        double total = amount * new_trade_pair.quote;
-        if(total < 0.0001){
-            cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
-                 << amount << "@" << new_trade_pair.quote << " would have total < 0.0001. Invalidating." << endl;
-            return false;
-        }
-
-        trades.push_back(new_trade_pair);
-        amounts.push_back(amount);
-        return true;
-    }
-
-    void print_seq() const {
-        cout << "Trade Seq: ";
-        for(const trade_pair& tp : trades){
-            cout << tp.sell << ">" << tp.buy << " " << tp.action << "@" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << ", ";
-        }
-        cout << "Net Change:" << fixed << setprecision(8) << net_gain << endl;
-    }
-};
 
 class crypto_exchange {
     string _name;
@@ -704,9 +653,10 @@ private:
                 if(any_buy_updates){
                     for(auto& tp : _pairs){
                         if(pair_id == tp.exchange_id && 's' == tp.action){
-                            double bid_price = _order_books[pair_id]->highest_bid();
-                            tp.quote = bid_price;
-                            tp.net = (1 - _market_fee) * bid_price;
+                            auto bid_order = _order_books[pair_id]->highest_bid();
+                            tp.quote = bid_order.price;
+                            tp.sell_amount = bid_order.amount;
+                            tp.net = (1 - _market_fee) * bid_order.price;
                             break;
                         }
                     }
@@ -714,9 +664,10 @@ private:
                 if(any_sell_updates){
                     for(auto& tp : _pairs){
                         if(pair_id == tp.exchange_id && 'b' == tp.action){
-                            double ask_price = _order_books[pair_id]->lowest_ask();
-                            tp.quote = ask_price;
-                            tp.net = (1 - _market_fee) / ask_price;
+                            auto ask_order = _order_books[pair_id]->lowest_ask();
+                            tp.quote = ask_order.price;
+                            tp.sell_amount = ask_order.amount * ask_order.price;
+                            tp.net = (1 - _market_fee) / ask_order.price;
                             break;
                         }
                     }
