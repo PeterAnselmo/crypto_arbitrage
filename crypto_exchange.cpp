@@ -218,7 +218,7 @@ public:
             }
         }
         if(!any_funded){
-            cout << "ERROR, Monotor trades called with no funded pairs. Exiting." << endl;
+            cout << "ERROR, Monitor trades called with no funded pairs. Exiting." << endl;
             throw ARB_ERR_UNKNOWN_PAIR;
         }
 
@@ -251,8 +251,12 @@ public:
                     trade_seq* profitable_trade = nullptr;
 
                     if(find_trade(last_pair_id, profitable_trade)){
-                        execute_trades(profitable_trade);
-
+                        try{
+                            execute_trades(profitable_trade);
+                        } catch (int exception) {
+                            print_market_data(profitable_trade);
+                            throw exception;
+                        }
                         print_market_data(profitable_trade);
 
                         delete profitable_trade;
@@ -350,13 +354,35 @@ public:
 
         int trade_num = 0;
         for(const auto& tp : trade_seq->trades){
+            cout << "Preparing Trade " << trade_num << ": " << tp.sell << ">" << tp.buy
+                 << " quote:" << fixed << setprecision(8) << tp.quote << " amount:" << trade_seq->amounts[trade_num] << "(" << tp.action << ")" << endl;
 
-            if(_name == "poloniex"){
-                poloniex_prepare_trade(handles[trade_num], header_slist[trade_num], trade_num, tp.sell, tp.buy, tp.exchange_id, tp.action, tp.quote, trade_seq->amounts[trade_num]);
-            } else {
-                cout << "trade requested on unsupported exchange. Throwing Error." << endl;
-                throw ARB_ERR_BAD_OPTION;
+            char rate_s[16];
+            sprintf(rate_s, "%.8f", tp.quote);
+            char amount_s[16];
+            sprintf(amount_s, "%.8f", trade_seq->amounts[trade_num]);
+            char post_data[120];
+
+            strcpy(post_data, "command=");
+            if(tp.action == 'b'){
+                strcat(post_data, "buy");
+            }else if(tp.action == 's'){
+                strcat(post_data, "sell");
             }
+            strcat(post_data, "&currencyPair=");
+            strcat(post_data, _pair_names[tp.exchange_id].c_str());
+            strcat(post_data, "&rate=");
+            strcat(post_data, rate_s);
+            strcat(post_data, "&amount=");
+            strcat(post_data, amount_s);
+            /*
+            if(immediate_only){
+                strcat(post_data, "&immediateOrCancel=1");
+            }
+            */
+
+            set_curl_post_options(handles[trade_num], header_slist[trade_num], post_data, trade_num);
+
             ++trade_num;
         }
 
@@ -382,7 +408,7 @@ public:
             fd_set fdexcep;
             int maxfd = -1;
 
-            long curl_timeo = 20000;
+            long curl_timeo = 25000;
 
             FD_ZERO(&fdread);
             FD_ZERO(&fdwrite);
@@ -488,6 +514,7 @@ public:
                 }
             } else { //non 200 response
                 all_trades_executed = false;
+                throw ARB_ERR_TRADE_NOT_EX;
             }
 
             curl_slist_free_all(header_slist[i]);
@@ -517,7 +544,6 @@ public:
         curl_slist_free_all(header_slist);
 		curl_easy_cleanup(curl);
 
-        cout << http_data << endl;
         rapidjson::Document open_trades;
         open_trades.Parse(http_data.c_str());
 
@@ -735,7 +761,7 @@ private:
         curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
         // Don't wait forever, time out after 20 seconds.
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
 
 
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -887,43 +913,6 @@ private:
         }
     }
 
-    //returns balance added to destination currency to use in forward chain
-    void poloniex_prepare_trade(CURL* curl, curl_slist*& header_slist, int seq_num, const char* sell, const char* buy, int pair_id, char action, double rate, double amount, bool immediate_only = false){
-        cout << "EXECUTING TRADE " << seq_num << ": " << sell << ">" << buy << " quote:" << fixed << setprecision(8) << rate << " amount:" << amount << "(" << action << ")" << endl;
-        /*
-        //round to improve odds of sale executing
-        if(action == 'b'){
-            rate += 0.00000001;
-            //amount passed is amount to sell, convert for buys
-        }else if(action == 's'){
-            rate -= 0.00000001;
-        }
-        */
-
-        char rate_s[16];
-        sprintf(rate_s, "%.8f", rate);
-        char amount_s[16];
-        sprintf(amount_s, "%.8f", amount);
-        char post_data[120];
-
-        strcpy(post_data, "command=");
-        if(action == 'b'){
-            strcat(post_data, "buy");
-        }else if(action == 's'){
-            strcat(post_data, "sell");
-        }
-        strcat(post_data, "&currencyPair=");
-        strcat(post_data, _pair_names[pair_id].c_str());
-        strcat(post_data, "&rate=");
-        strcat(post_data, rate_s);
-        strcat(post_data, "&amount=");
-        strcat(post_data, amount_s);
-        if(immediate_only){
-            strcat(post_data, "&immediateOrCancel=1");
-        }
-
-        set_curl_post_options(curl, header_slist, post_data, seq_num);
-    }
 
 };
 

@@ -57,8 +57,8 @@ void set_curl_get_options(CURL* curl, const std::string url){
     //disable Nagle algorithm
     curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 0);
 
-    // Don't wait forever, time out after 10 seconds.
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    // Don't wait forever, time out after 25 seconds.
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 25L);
 
     // Follow HTTP redirects if necessary.
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0);
@@ -66,7 +66,7 @@ void set_curl_get_options(CURL* curl, const std::string url){
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
 
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto trading automated trader");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
 
     // Hook up data handling function.
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
