@@ -281,6 +281,50 @@ public:
         return false;
     }
 
+    inline void set_curl_post_options(CURL* curl, curl_slist*& header_slist, char* post_data, int api_num = 0){
+        char nonce[14];
+        long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
+        sprintf(nonce, "%li", now);
+
+        strcat(post_data, "&nonce=");
+        strcat(post_data, nonce);
+
+        char api_key_header[40] = "Key:";
+        strcat(api_key_header, _api_keys[api_num]);
+
+        string signature = hmac_512_sign(_api_secrets[api_num], post_data);
+
+        printf("Sending Post Data: %s\n", post_data);
+        curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, post_data);
+
+        header_slist = curl_slist_append(header_slist, api_key_header);
+        string sig_header = "Sign:" + signature;
+        header_slist = curl_slist_append(header_slist, sig_header.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_slist);
+
+        if(ARB_DEBUG){
+            curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
+        }
+
+        // Hook up data handling function.
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
+        // Set remote URL.
+        curl_easy_setopt(curl, CURLOPT_URL, _post_url.c_str());
+
+        // Don't bother trying IPv6, which would increase DNS resolution time.
+        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // Don't wait forever, time out after 20 seconds.
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
+    }
+
+
     bool execute_trades(trade_seq*& trade_seq){
         int num_trades = trade_seq->trades.size();
 
@@ -488,10 +532,10 @@ public:
 
         CURL* curl = curl_easy_init();
         struct curl_slist *header_slist = nullptr;
-		set_curl_post_options(curl, header_slist, post_data);
+        set_curl_post_options(curl, header_slist, post_data);
         string http_data = poloniex_single_post(curl);
         curl_slist_free_all(header_slist);
-		curl_easy_cleanup(curl);
+        curl_easy_cleanup(curl);
 
         rapidjson::Document open_trades;
         open_trades.Parse(http_data.c_str());
@@ -678,49 +722,6 @@ private:
 
     }
 
-    void set_curl_post_options(CURL* curl, curl_slist*& header_slist, char* post_data, int api_num = 0){
-        char nonce[14];
-        long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
-        sprintf(nonce, "%li", now);
-
-        strcat(post_data, "&nonce=");
-        strcat(post_data, nonce);
-
-        char api_key_header[40] = "Key:";
-        strcat(api_key_header, _api_keys[api_num]);
-
-        string signature = hmac_512_sign(_api_secrets[api_num], post_data);
-
-        printf("Sending Post Data: %s\n", post_data);
-        curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, post_data);
-
-        header_slist = curl_slist_append(header_slist, api_key_header);
-        string sig_header = "Sign:" + signature;
-        header_slist = curl_slist_append(header_slist, sig_header.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_slist);
-
-        if(ARB_DEBUG){
-            curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
-        }
-
-        // Hook up data handling function.
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
-        // Set remote URL.
-        curl_easy_setopt(curl, CURLOPT_URL, _post_url.c_str());
-
-        // Don't bother trying IPv6, which would increase DNS resolution time.
-        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-
-        // Don't wait forever, time out after 20 seconds.
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-
-
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
-    }
-
     string poloniex_single_post(CURL* curl) const {
 
         // Hook up data container (will be passed as the last parameter to the
@@ -757,10 +758,10 @@ private:
         
         CURL* curl = curl_easy_init();
         struct curl_slist *header_slist = nullptr;
-		set_curl_post_options(curl, header_slist, post_data);
+        set_curl_post_options(curl, header_slist, post_data);
         string http_data = poloniex_single_post(curl);
         curl_slist_free_all(header_slist);
-		curl_easy_cleanup(curl);
+        curl_easy_cleanup(curl);
 
         rapidjson::Document fee_json;
         fee_json.Parse(http_data.c_str());
@@ -776,10 +777,10 @@ private:
 
         CURL* curl = curl_easy_init();
         struct curl_slist *header_slist = nullptr;
-		set_curl_post_options(curl, header_slist, post_data);
+        set_curl_post_options(curl, header_slist, post_data);
         string http_data = poloniex_single_post(curl);
         curl_slist_free_all(header_slist);
-		curl_easy_cleanup(curl);
+        curl_easy_cleanup(curl);
 
         rapidjson::Document balance_json;
         balance_json.Parse(http_data.c_str());
