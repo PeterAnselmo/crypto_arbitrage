@@ -1,13 +1,14 @@
 <?php
 $balances = array(
-    "BTC"=>"1.00",
-    "XRP"=>"50.0",
-    "BCH"=>"2.5",
-    "LTC"=>"3.25",
-    "XMR"=>"0.00",
-    "ZEC"=>"0.00",
-    "USDT"=>"30.00",
-    "ETH"=>"2.1000000");
+    "BTC"=>array("available"=>"1.00", "btcValue"=>"0.003"),
+    "XRP"=>array("available"=>"50.0", "btcValue"=>"0.003"),
+    "BCH"=>array("available"=>"2.5", "btcValue"=>"0.003"),
+    "LTC"=>array("available"=>"3.25", "btcValue"=>"0.003"),
+    "XMR"=>array("available"=>"0.00", "btcValue"=>"0.003"),
+    "ZEC"=>array("available"=>"0.00", "btcValue"=>"0.003"),
+    "USDT"=>array("available"=>"30.00", "btcValue"=>"0.003"),
+    "ETH"=>array("available"=>"2.1000000", "btcValue"=>"0.003")
+);
 $market_rates = array(
     "BTC_BCH" => 0.15167712,
     "BTC_ETH" => 0.07401501,
@@ -16,7 +17,7 @@ $market_rates = array(
     "BTC_ZEC" => 0.0330,
     "ETH_BCH" => 2.25217686);
 
-if($_POST['command'] == 'returnBalances'){
+if($_POST['command'] == 'returnCompleteBalances'){
     echo json_encode($balances);
 
 } else if($_POST['command'] == 'returnFeeInfo'){
