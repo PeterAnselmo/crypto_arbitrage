@@ -52,6 +52,7 @@ public:
         } else if(action == 's'){
             return book_size(_asks);
         }
+        return -1;
     }
 
     void print_book() const{

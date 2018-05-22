@@ -33,13 +33,13 @@ TEST(OrderBook, RecordingOrdersWorks){
     book1->print_book();
 
     ASSERT_TRUE(book1->record_buy(.12345678, 5.00));
-    ASSERT_FLOAT_EQ(.12345678, book1->highest_bid());
+    ASSERT_FLOAT_EQ(.12345678, book1->highest_bid().price);
     ASSERT_EQ(1, book1->book_size('b'));
     book1->print_book();
 
     //higher, should be at front of bids
     ASSERT_TRUE(book1->record_buy(.22345678, 5.00));
-    ASSERT_EQ(.22345678, book1->highest_bid());
+    ASSERT_EQ(.22345678, book1->highest_bid().price);
     ASSERT_EQ(2, book1->book_size('b'));
     book1->print_book();
 
@@ -47,25 +47,25 @@ TEST(OrderBook, RecordingOrdersWorks){
     ASSERT_TRUE(book1->record_sell(.32345678, 2.00));
     ASSERT_FALSE(book1->record_sell(20.33345678, 8.00));
 
-    ASSERT_EQ(.22345678, book1->highest_bid());
+    ASSERT_EQ(.22345678, book1->highest_bid().price);
     ASSERT_EQ(2, book1->book_size('b'));
     book1->print_book();
 
     //lower, should not change front of bids
     ASSERT_FALSE(book1->record_buy(.02345678, 5.00));
-    ASSERT_EQ(.22345678, book1->highest_bid());
+    ASSERT_EQ(.22345678, book1->highest_bid().price);
     ASSERT_EQ(3, book1->book_size('b'));
     book1->print_book();
 
     //zero size, should remove order
     ASSERT_TRUE(book1->record_buy(.22345678, 0.0000));
-    ASSERT_EQ(.12345678, book1->highest_bid());
+    ASSERT_EQ(.12345678, book1->highest_bid().price);
     ASSERT_EQ(2, book1->book_size('b'));
     book1->print_book();
 
     //zero size, should remove order
     ASSERT_TRUE(book1->record_buy(.12345678, 0.0000));
-    ASSERT_EQ(.02345678, book1->highest_bid());
+    ASSERT_EQ(.02345678, book1->highest_bid().price);
     ASSERT_EQ(1, book1->book_size('b'));
     book1->print_book();
 }
