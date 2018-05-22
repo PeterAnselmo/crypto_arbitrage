@@ -26,6 +26,7 @@ using namespace std;
 constexpr int max_trade_pairs = 300;
 constexpr float balance_utilization = 0.70;
 constexpr int print_interval = 1000;
+constexpr int num_trades = 3;
 
 
 class crypto_exchange {
@@ -39,11 +40,17 @@ class crypto_exchange {
     CURL* _curl_get;
     array<string, max_trade_pairs> _pair_names;
     array<bool, max_trade_pairs> _funded_pairs;
-    array<unique_ptr<order_book>, max_trade_pairs> _order_books;
+    array<order_book*, max_trade_pairs> _order_books;
     array<unsigned long, max_trade_pairs> _order_sequences;
     const char* _api_keys[3];
     const char* _api_secrets[3];
     std::chrono::steady_clock::time_point _segment_begin, _segment_end;
+
+    CURL* handles[num_trades];
+    std::unique_ptr<std::string> http_data[num_trades];
+    struct curl_slist *header_slist[num_trades];
+    long http_code[num_trades];
+    CURLM* multi_handle;
 
 public:
 
@@ -146,6 +153,20 @@ public:
     }
 
     int monitor_trades(){
+
+        //terible locality for this curl code (It's more relevant to execute_trades(),
+        //but it should be executed as soon as possible before processing tickers
+        for(int i=0; i<num_trades; ++i){
+            handles[i] = curl_easy_init();
+            http_data[i] = std::unique_ptr<std::string>(new string());
+            header_slist[i] = nullptr;
+        }
+        multi_handle = curl_multi_init();
+        for(int i=0; i<num_trades; ++i){
+            curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data[i].get());
+            curl_multi_add_handle(multi_handle, handles[i]);
+        }
+
         web::websockets::client::websocket_client client;
         client.connect(_ws_url).wait();
 
@@ -255,20 +276,22 @@ public:
                     if(net < 1.0020){
                         continue;
                     }
-                    cout << "Found Potential Trade: " 
-                         << tp1.sell << ">" << tp2.sell << "(" << tp1.action << ") > " 
-                         << tp2.sell << ">" << tp3.sell << "(" << tp2.action << ") > " 
-                         << tp3.sell << ">" << tp3.buy << "(" << tp3.action << ") > " 
-                         << tp3.buy << fixed << setprecision(8) << " net:" << net << ", " << endl;
-
+                    if(ARB_DEBUG){
+                        cout << "Found Potential Trade: "
+                             << tp1.sell << ">" << tp2.sell << "(" << tp1.action << ") > "
+                             << tp2.sell << ">" << tp3.sell << "(" << tp2.action << ") > "
+                             << tp3.sell << ">" << tp3.buy << "(" << tp3.action << ") > "
+                             << tp3.buy << fixed << setprecision(8) << " net:" << net << ", " << endl;
+                    }
                     ts = new trade_seq;
                     //this requires all balances to be within 75% absolute value of each other
                     if(ts->add_pair(tp1, _balances[tp1.sell] * balance_utilization)){
                         if(ts->add_pair(tp2)){
                             if(ts->add_pair(tp3)){
                                 ts->net_gain = net;
-                                print_ts();
-                                ts->print_seq();
+                                if(ARB_DEBUG){
+                                    ts->print_seq();
+                                }
                                 return true;
                             }
                         }
@@ -325,30 +348,19 @@ public:
 
 
     bool execute_trades(trade_seq*& trade_seq){
-        int num_trades = trade_seq->trades.size();
+        //int num_trades = trade_seq->trades.size();
 
-        CURL* handles[num_trades];
-        struct curl_slist *header_slist[num_trades];
-        CURLM* multi_handle;
         CURLMsg *msg; /* for picking up messages with the transfer status */ 
         int msgs_left; /* how many messages are left */ 
 
         int curl_still_running;
 
-        long http_code[num_trades];
-        std::unique_ptr<std::string> http_data[num_trades];
-
-        for(int i=0; i<num_trades; ++i){
-            handles[i] = curl_easy_init();
-            http_data[i] = std::unique_ptr<std::string>(new string());
-            header_slist[i] = nullptr;
-        }
-
         int trade_num = 0;
         for(const auto& tp : trade_seq->trades){
+        if(ARB_DEBUG){
             cout << "Preparing Trade " << trade_num << ": " << tp.sell << ">" << tp.buy
                  << " quote:" << fixed << setprecision(8) << tp.quote << " amount:" << trade_seq->amounts[trade_num] << "(" << tp.action << ")" << endl;
-
+            }
             char rate_s[16];
             sprintf(rate_s, "%.8f", tp.quote);
             char amount_s[16];
@@ -357,11 +369,11 @@ public:
 
             strcpy(post_data, "command=");
             if(tp.action == 'b'){
-                strcat(post_data, "buy");
+                strcat(post_data, "buy&currencyPair=");
             }else if(tp.action == 's'){
-                strcat(post_data, "sell");
+                strcat(post_data, "sell&currencyPair=");
             }
-            strcat(post_data, "&currencyPair=");
+            //strcat(post_data, "&currencyPair=");
             strcat(post_data, _pair_names[tp.exchange_id].c_str());
             strcat(post_data, "&rate=");
             strcat(post_data, rate_s);
@@ -378,17 +390,11 @@ public:
             ++trade_num;
         }
 
-        multi_handle = curl_multi_init();
-        for(int i=0; i<num_trades; ++i){
-            curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data[i].get());
-            curl_multi_add_handle(multi_handle, handles[i]);
-        }
-
         /* we start some action by calling perform right away */ 
         curl_multi_perform(multi_handle, &curl_still_running);
 
         _segment_end = std::chrono::steady_clock::now();
-        cout << std::chrono::duration_cast<std::chrono::microseconds>(_segment_end - _segment_begin).count() << " microseconds processing time." << endl;
+        cout << "Curl Performed: " << std::chrono::duration_cast<std::chrono::microseconds>(_segment_end - _segment_begin).count() << " microseconds after ticker." << endl;
 
         do {
             struct timeval timeout;
@@ -637,7 +643,7 @@ private:
     }
 
 
-    unsigned int process_ticker_update(string message){
+    unsigned int process_ticker_update(const string& message){
 
         rapidjson::Document ticker_update;
         ticker_update.Parse(message.c_str());
@@ -871,7 +877,7 @@ private:
 
             pair_id = listed_pair.value["id"].GetInt();
             _pair_names[pair_id] = listed_pair.name.GetString();
-            _order_books[pair_id] = unique_ptr<order_book>(new order_book);
+            _order_books[pair_id] = new order_book;
 
             //brittle, dangerous, fast way to split on known-delimiter market string
             market = listed_pair.name.GetString();
