@@ -60,11 +60,10 @@ public:
             _market_fee = 0.0025;
         } else if(_name == "poloniex"){
 
-            _get_url = (new_get_url != "") ? new_get_url : "https://poloniex.com/public?command=returnTicker";
+            _get_url = (new_get_url != "") ? new_get_url : "https://poloniex.com/public";
             _post_url = (new_post_url != "") ? new_post_url : "https://poloniex.com/tradingApi";
             _ws_url = (new_ws_url != "") ? new_ws_url : "wss://api2.poloniex.com";
 
-            set_curl_get_options(_curl_get, _get_url);
 
             _api_keys[0] = getenv("ARB_API_KEY_0");
             _api_secrets[0] = getenv("ARB_API_SECRET_0");
@@ -523,6 +522,12 @@ public:
             cout << "Pair Summary: ID:" << tp.exchange_id << ", " << tp.sell << ">" << tp.buy << " " << tp.action << "@" << fixed << setprecision(8) << tp.quote << " net:" << tp.net << endl;
             _order_books[tp.exchange_id]->print_book();
         }
+
+        sleep(2); //wait for our order to go through
+
+        for(const auto& tp : trade_seq->trades){
+            print_trade_history(tp.exchange_id, 10, tp.quote);
+        }
     }
 
     bool any_open_orders(){
@@ -805,7 +810,46 @@ private:
         }
     }
 
+    void print_trade_history(unsigned int pair_id, unsigned int num_trades=10, double highlight_rate = 0) const{
+
+        string url = _get_url + "?command=returnTradeHistory&currencyPair=" + _pair_names[pair_id];
+        set_curl_get_options(_curl_get, url);
+
+        std::string http_data = curl_get(_curl_get);
+        rapidjson::Document trades;
+        trades.Parse(http_data.c_str());
+
+        unsigned int count = 0;
+        unsigned long trade_id;
+        string date, type, rate, amount, total;
+
+        cout << "===Trade History for Pair:" << pair_id << ", " << _pair_names[pair_id] << " ===" << endl;
+        for(const auto& trade : trades.GetArray()){
+            trade_id = trade["tradeID"].GetInt();
+            date = trade["date"].GetString();
+            type = trade["type"].GetString();
+            rate = trade["rate"].GetString();
+            amount = trade["amount"].GetString();
+            total = trade["total"].GetString();
+            cout << "ID:" << trade_id << " : date:" << date << " : type:" << setw(4) << left << type
+                 << " : rate:" << rate << " : amount:" << setw(12) << right << amount << " : total:" << setw(12) << total;
+            if(highlight_rate != 0){
+                if(abs(stod(rate) - highlight_rate) < 0.000000001){
+                    cout << " <---";
+                }
+            }
+            cout << endl;
+            if(++count > num_trades){
+                break;
+            }
+        }
+
+    }
+
+
     void populate_poloniex_trade_pairs(){
+
+        set_curl_get_options(_curl_get, _get_url + "?command=returnTicker");
 
         std::string http_data = curl_get(_curl_get);
         rapidjson::Document products;
