@@ -1,5 +1,6 @@
 #include "crypto_exchange_test.cpp"
 #include "order_book_test.cpp"
+#include "trade_seq_test.cpp"
 
 int main(int argc, char **argv){
 

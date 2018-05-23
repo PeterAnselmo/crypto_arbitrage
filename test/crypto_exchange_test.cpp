@@ -132,7 +132,6 @@ TEST(CryptoExchange, PoloniexFindsProfitableTrade){
     ASSERT_TRUE(poloniex->find_trade(profitable_trade));
 
 }
-*/
 TEST(CryptoExchange, PoloniexFailsUnderfundedSell){
 
     crypto_exchange* poloniex = new crypto_exchange("poloniex",
@@ -259,7 +258,6 @@ TEST(CryptoExchange, PoloniexBuySucceeds){
     ASSERT_NEAR(0.0, poloniex->balance("BTC"), .001);
     ASSERT_NEAR(33.377959973, poloniex->balance("XMR"), .02);
 }
-/*
 TEST(CryptoExchange, EntireSequenceExcecuted){
     //Trade Seq: ETH>BTC sell@0.07401501 net:0.07382997, BTC>BCH buy@0.15167712 net:6.57646990, BCH>ETH sell@2.25217676 net:2.24654627, Net Change:1.09078932
 

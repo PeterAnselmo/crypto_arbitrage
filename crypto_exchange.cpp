@@ -173,9 +173,11 @@ public:
         web::websockets::client::websocket_outgoing_message out_msg;
         string command;
 
+/*
         command = "{\"command\":\"subscribe\",\"channel\":1002}";
         out_msg.set_utf8_message(command);
         client.send(out_msg).wait();
+*/
 
         bool any_funded = false;
         for(int pair_id=0; pair_id<max_trade_pairs; ++pair_id){
@@ -276,27 +278,31 @@ public:
                     if(net < 1.0020){
                         continue;
                     }
-                    if(ARB_DEBUG){
-                        cout << "Found Potential Trade: "
-                             << tp1.sell << ">" << tp2.sell << "(" << tp1.action << ") > "
-                             << tp2.sell << ">" << tp3.sell << "(" << tp2.action << ") > "
-                             << tp3.sell << ">" << tp3.buy << "(" << tp3.action << ") > "
-                             << tp3.buy << fixed << setprecision(8) << " net:" << net << ", " << endl;
-                    }
                     ts = new trade_seq;
                     //this requires all balances to be within 75% absolute value of each other
-                    if(ts->add_pair(tp1, _balances[tp1.sell] * balance_utilization)){
-                        if(ts->add_pair(tp2)){
-                            if(ts->add_pair(tp3)){
-                                ts->net_gain = net;
-                                if(ARB_DEBUG){
-                                    ts->print_seq();
-                                }
-                                return true;
-                            }
-                        }
+                    //do a round robin to ensure that we start with the lowest depth order
+                    if(ts->check_pair(tp1, _balances[tp1.sell] * balance_utilization) && ts->check_pair(tp2) && ts->check_pair(tp3)) {
+                        ts->trades.push_back(tp1);
+                        ts->trades.push_back(tp2);
+                        ts->trades.push_back(tp3);
+                        return true;
+                    } else if (ts->check_pair(tp2, _balances[tp2.sell] * balance_utilization) && ts->check_pair(tp3) && ts->check_pair(tp1)) {
+                        ts->trades.push_back(tp2);
+                        ts->trades.push_back(tp3);
+                        ts->trades.push_back(tp1);
+                        return true;
+                    } else if (ts->check_pair(tp3, _balances[tp3.sell] * balance_utilization) && ts->check_pair(tp1) && ts->check_pair(tp2)) {
+                        ts->trades.push_back(tp3);
+                        ts->trades.push_back(tp1);
+                        ts->trades.push_back(tp2);
+                        return true;
+                    } else {
+                        cout << "Found Potential, but unworkable trade: " << endl;
+                        cout << tp1.sell << ">" << tp1.buy << " " << tp1.action << "@" << fixed << setprecision(8) << tp1.quote << " net:" << tp1.net << ", "
+                             << tp2.sell << ">" << tp2.buy << " " << tp2.action << "@" << fixed << setprecision(8) << tp2.quote << " net:" << tp2.net << ", "
+                             << tp3.sell << ">" << tp3.buy << " " << tp3.action << "@" << fixed << setprecision(8) << tp3.quote << " net:" << tp3.net << ", ";
+                        delete ts;
                     }
-                    delete ts;
                 }
             }
         }
@@ -529,7 +535,7 @@ public:
             _order_books[tp.exchange_id]->print_book();
         }
 
-        sleep(2); //wait for our order to go through
+        sleep(3); //wait for our order to go through
 
         for(const auto& tp : trade_seq->trades){
             print_trade_history(tp.exchange_id, 10, tp.quote);
@@ -697,9 +703,11 @@ private:
                         for(const auto& ask_order : order[1]["orderBook"][0].GetObject()){
                             _order_books[pair_id]->record_sell(stod(ask_order.name.GetString()), stod(ask_order.value.GetString()));
                         }
+                        any_sell_updates = true;
                         for(const auto& bid_order : order[1]["orderBook"][1].GetObject()){
                             _order_books[pair_id]->record_buy(stod(bid_order.name.GetString()), stod(bid_order.value.GetString()));
                         }
+                        any_buy_updates = true;
                     }else {
                         cout << "ERROR, Unknown opration in ticker update" << endl;
                         throw ARB_ERR_BAD_OPTION;
@@ -710,7 +718,7 @@ private:
                         if(pair_id == tp.exchange_id && 's' == tp.action){
                             auto bid_order = _order_books[pair_id]->highest_bid();
                             tp.quote = bid_order.price;
-                            tp.sell_amount = bid_order.amount;
+                            tp.depth = bid_order.amount;
                             tp.net = (1 - _market_fee) * bid_order.price;
                             break;
                         }
@@ -721,7 +729,8 @@ private:
                         if(pair_id == tp.exchange_id && 'b' == tp.action){
                             auto ask_order = _order_books[pair_id]->lowest_ask();
                             tp.quote = ask_order.price;
-                            tp.sell_amount = ask_order.amount * ask_order.price;
+                            //tp.sell_amount = ask_order.amount * ask_order.price;
+                            tp.depth = ask_order.amount;
                             tp.net = (1 - _market_fee) / ask_order.price;
                             break;
                         }

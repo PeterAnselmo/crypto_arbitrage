@@ -1,11 +1,12 @@
 
 To-Do:
+-Compare computed amounts to market depths. Shuffle if insufficient depth at any.
+--Implemented, needs more test coverage
+--Improve code - omit uneeded sell amoutn param (just set next sell), replace with position
 -handle case of recovering streams from bad data
 -inspect with valgrind. seems to slow down after running a while.
--cleanup tests, update to use multi output
+-cleanup tests, update to use currency streams
 
 Optimization Ideas:
--Convert JSON decode of WS ticker to custom string tokenization function (can even start at ",[" and stop after bid/ask)
---Did this, only a few microseconds faster :-(
 -Test different WS libraries. Can cpprest be removed and just use libwebsockets?
 -Change currency strings to be ints (with lookup populated by GET returnTicker)

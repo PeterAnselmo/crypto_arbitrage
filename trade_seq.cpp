@@ -1,6 +1,8 @@
 #ifndef TRADE_SEQ_H
 #define TRADE_SEQ_H
 
+#include "trade_pair.cpp"
+
 using namespace std;
 
 struct trade_seq {
@@ -16,37 +18,46 @@ struct trade_seq {
         }
         return _currencies;
     }
-    bool add_pair(trade_pair new_trade_pair, double passed_amount = 0){
+    bool check_pair(trade_pair tp, double passed_sell_amount = 0){
 
-        //first in a sequence, start with passed balance or known depth
         double amount;
-        if(passed_amount != 0){
-            amount = passed_amount;
-            if( new_trade_pair.sell_amount < amount){
-                amount = new_trade_pair.sell_amount;
-            }
+        //first in a sequence, start with passed balance
+        if(passed_sell_amount != 0){
+            amounts.clear();
+            amount = passed_sell_amount;
         } else {
             amount = next_sell_amount;
         }
-        next_sell_amount = amount * new_trade_pair.net;
 
-        if(amount < 0.001){
-            cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
-                 << amount << "@" << new_trade_pair.quote << " has Insufficient starting balance. Invalidating." << endl;
-            return false;
+        if(tp.action == 'b'){//have sell amount, convert for buy amount
+            amount = amount / tp.quote;
         }
-        if(new_trade_pair.action == 'b'){//have sell amount, convert for buy amount
-            amount = amount / new_trade_pair.quote;
+
+        //if first trade, move amount down to depth, otherwise invalidate
+        if(tp.depth < amount){
+            if(passed_sell_amount != 0){
+                amount = tp.depth;
+            } else {
+                //cout << "Order amount " << fixed << setprecision(8) << amount << " greater then market depth " << tp.depth << ". Permutating Orders." << endl;
+                return false;
+            }
         }
-        double total = amount * new_trade_pair.quote;
+
+        double total = amount * tp.quote;
         if(total < 0.0001){
-            cout << "Trade " << new_trade_pair.sell << ">" << new_trade_pair.buy << " (" << new_trade_pair.action << ") "
-                 << amount << "@" << new_trade_pair.quote << " would have total < 0.0001. Invalidating." << endl;
+            cout << "Trade " << tp.sell << ">" << tp.buy << " (" << tp.action << ") " << fixed << setprecision(8)
+                 << amount << "@" << tp.quote << " would have total < 0.0001. Invalidating." << endl;
             return false;
         }
 
-        trades.push_back(new_trade_pair);
         amounts.push_back(amount);
+
+        //this is doing double math. It could be simplified by making the market fee in scope
+        if(tp.action == 'b'){
+            next_sell_amount = amount * tp.quote * tp.net;
+        } else {
+            next_sell_amount = amount * tp.net;
+        }
         return true;
     }
 

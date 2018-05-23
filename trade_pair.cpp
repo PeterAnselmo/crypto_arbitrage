@@ -6,7 +6,7 @@ struct trade_pair {
     char sell[8];
     char buy[8];
     double quote;
-    double sell_amount;
+    double depth;
     double net;
     char action; //'b' buy, 's', sell
 };
