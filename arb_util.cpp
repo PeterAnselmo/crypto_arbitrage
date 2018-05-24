@@ -42,6 +42,26 @@ inline void print_ts(){
     cout << chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count() << " ";
 }
 
+double pos_stod(const char *p) {
+    double r = 0.0;
+    while (*p >= '0' && *p <= '9') {
+        r = (r*10.0) + (*p - '0');
+        ++p;
+    }
+    if (*p == '.') {
+        double f = 0.0;
+        int n = 0;
+        ++p;
+        while (*p >= '0' && *p <= '9') {
+            f = (f*10.0) + (*p - '0');
+            ++p;
+            ++n;
+        }
+        r += f / std::pow(10.0, n);
+    }
+    return r;
+}
+
 void set_curl_get_options(CURL* curl, const std::string url){
 
     // Set remote URL.
@@ -122,19 +142,19 @@ string hmac_512_sign(const char* key, string plain) {
 
     string sig;
     try {
-        CryptoPP::HMAC<CryptoPP::SHA512 > hmac((byte*)key, strlen(key));
+        CryptoPP::HMAC<CryptoPP::SHA512 > hmac((CryptoPP::byte*)key, strlen(key));
 
-		CryptoPP::StringSource(plain, true,
-			new CryptoPP::HashFilter(hmac,
+        CryptoPP::StringSource(plain, true,
+            new CryptoPP::HashFilter(hmac,
                 new CryptoPP::HexEncoder(
                     new CryptoPP::StringSink(sig)
-                )
-			) // HashFilter
-		); // StringSource
+                    )
+                ) // HashFilter
+            ); // StringSource
 
-	} catch(const CryptoPP::Exception& e) {
+    } catch(const CryptoPP::Exception& e) {
 
-		cerr << e.what() << endl;
+        cerr << e.what() << endl;
     }
 
     return sig;

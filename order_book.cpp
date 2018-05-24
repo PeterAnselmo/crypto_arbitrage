@@ -94,7 +94,7 @@ public:
         bool highest_changed = true;
         for(auto pos = _bids.begin(); pos != _bids.end(); ++pos, ++pos_before){
             //float equality to 8 decimal places
-            if(abs(price - pos->price) < 0.000000001){
+            if(std::abs(price - pos->price) < 0.000000001){
                 if(amount < 0.00000001){
                     _bids.erase_after(pos_before);
                     return highest_changed;
@@ -116,7 +116,7 @@ public:
         auto pos_before = _asks.before_begin();
         bool lowest_changed = true;
         for(auto pos = _asks.begin(); pos != _asks.end(); ++pos, ++pos_before){
-            if(abs(price - pos->price) < 0.000000001){
+            if(std::abs(price - pos->price) < 0.000000001){
                 if(amount < 0.00000001){
                     _asks.erase_after(pos_before);
                     return lowest_changed;

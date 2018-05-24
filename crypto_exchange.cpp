@@ -24,10 +24,11 @@ using namespace std;
 //requires all balances be within this amount of each other so that
 //we can run the trade in any order and have sufficient funds
 constexpr int max_trade_pairs = 300;
-constexpr float balance_utilization = 0.70;
+constexpr float balance_utilization = 0.65;
 constexpr int print_interval = 1000;
 constexpr int num_trades = 3;
 
+constexpr bool TIMING_DEBUG = false;
 
 class crypto_exchange {
     string _name;
@@ -155,14 +156,14 @@ public:
     int monitor_trades(){
 
         //terible locality for this curl code (It's more relevant to execute_trades(),
-        //but it should be executed as soon as possible before processing tickers
+        //but it can be executed ahead of time before processing tickers
+        multi_handle = curl_multi_init();
         for(int i=0; i<num_trades; ++i){
             handles[i] = curl_easy_init();
             http_data[i] = std::unique_ptr<std::string>(new string());
             header_slist[i] = nullptr;
-        }
-        multi_handle = curl_multi_init();
-        for(int i=0; i<num_trades; ++i){
+
+            set_curl_static_post_options(handles[i]);
             curl_easy_setopt(handles[i], CURLOPT_WRITEDATA, http_data[i].get());
             curl_multi_add_handle(multi_handle, handles[i]);
         }
@@ -219,13 +220,25 @@ public:
                     }
                     _segment_begin = std::chrono::steady_clock::now();
                     last_pair_id = process_ticker_update(body);
-                    trade_seq* profitable_trade = nullptr;
 
+                    if(TIMING_DEBUG){
+                        _segment_end = std::chrono::steady_clock::now();
+                        cout << "Ticker Update Processed: " << std::chrono::duration_cast<std::chrono::microseconds>(_segment_end - _segment_begin).count() << " microseconds" << endl;
+                        _segment_begin = std::chrono::steady_clock::now();
+                    }
+
+                    trade_seq* profitable_trade = nullptr;
                     if(find_trade(last_pair_id, profitable_trade)){
+                        if(TIMING_DEBUG){
+                            _segment_end = std::chrono::steady_clock::now();
+                            cout << "Trade Found: " << std::chrono::duration_cast<std::chrono::microseconds>(_segment_end - _segment_begin).count() << " microseconds" << endl;
+                            _segment_begin = std::chrono::steady_clock::now();
+                        }
+
                         try{
                             execute_trades(profitable_trade);
                         } catch (int exception) {
-                            print_market_data(profitable_trade);
+                            //print_market_data(profitable_trade);
                             throw exception;
                         }
                         print_market_data(profitable_trade);
@@ -309,7 +322,28 @@ public:
         return false;
     }
 
-    inline void set_curl_post_options(CURL* curl, curl_slist*& header_slist, char* post_data, int api_num = 0){
+    void set_curl_static_post_options(CURL* curl){
+        // Hook up data handling function.
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
+        // Set remote URL.
+        curl_easy_setopt(curl, CURLOPT_URL, _post_url.c_str());
+
+        // Don't bother trying IPv6, which would increase DNS resolution time.
+        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // Don't wait forever, time out after 20 seconds.
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+        //disable Nagle algorithm
+        curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
+
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
+    }
+
+    inline void set_curl_dynamic_post_options(CURL* curl, curl_slist*& header_slist, char* post_data, int api_num = 0){
         char nonce[14];
         long int now = chrono::duration_cast<chrono::milliseconds>(chrono::system_clock::now().time_since_epoch()).count();
         sprintf(nonce, "%li", now);
@@ -321,6 +355,7 @@ public:
         strcat(api_key_header, _api_keys[api_num]);
 
         string signature = hmac_512_sign(_api_secrets[api_num], post_data);
+        //string signature = post_data;
 
         printf("Sending Post Data: %s\n", post_data);
         curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, post_data);
@@ -333,23 +368,6 @@ public:
         if(ARB_DEBUG){
             curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
         }
-
-        // Hook up data handling function.
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
-        // Set remote URL.
-        curl_easy_setopt(curl, CURLOPT_URL, _post_url.c_str());
-
-        // Don't bother trying IPv6, which would increase DNS resolution time.
-        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-
-        // Don't wait forever, time out after 20 seconds.
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-
-
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
     }
 
 
@@ -363,9 +381,9 @@ public:
 
         int trade_num = 0;
         for(const auto& tp : trade_seq->trades){
-        if(ARB_DEBUG){
-            cout << "Preparing Trade " << trade_num << ": " << tp.sell << ">" << tp.buy
-                 << " quote:" << fixed << setprecision(8) << tp.quote << " amount:" << trade_seq->amounts[trade_num] << "(" << tp.action << ")" << endl;
+            if(ARB_DEBUG){
+                cout << "Preparing Trade " << trade_num << ": " << tp.sell << ">" << tp.buy
+                     << " quote:" << fixed << setprecision(8) << tp.quote << " amount:" << trade_seq->amounts[trade_num] << "(" << tp.action << ")" << endl;
             }
             char rate_s[16];
             sprintf(rate_s, "%.8f", tp.quote);
@@ -391,16 +409,23 @@ public:
             }
             */
 
-            set_curl_post_options(handles[trade_num], header_slist[trade_num], post_data, trade_num);
+            set_curl_dynamic_post_options(handles[trade_num], header_slist[trade_num], post_data, trade_num);
 
             ++trade_num;
         }
+
+        if(TIMING_DEBUG){
+            _segment_end = std::chrono::steady_clock::now();
+            cout << "Curl requests prepared: " << std::chrono::duration_cast<std::chrono::microseconds>(_segment_end - _segment_begin).count() << " microseconds" << endl;
+            _segment_begin = std::chrono::steady_clock::now();
+        }
+
 
         /* we start some action by calling perform right away */ 
         curl_multi_perform(multi_handle, &curl_still_running);
 
         _segment_end = std::chrono::steady_clock::now();
-        cout << "Curl Performed: " << std::chrono::duration_cast<std::chrono::microseconds>(_segment_end - _segment_begin).count() << " microseconds after ticker." << endl;
+        cout << "Curl Performed: " << std::chrono::duration_cast<std::chrono::microseconds>(_segment_end - _segment_begin).count() << " microseconds." << endl;
 
         do {
             struct timeval timeout;
@@ -549,7 +574,8 @@ public:
 
         CURL* curl = curl_easy_init();
         struct curl_slist *header_slist = nullptr;
-        set_curl_post_options(curl, header_slist, post_data);
+        set_curl_static_post_options(curl);
+        set_curl_dynamic_post_options(curl, header_slist, post_data);
         string http_data = poloniex_single_post(curl);
         curl_slist_free_all(header_slist);
         curl_easy_cleanup(curl);
@@ -682,11 +708,11 @@ private:
                         //cout << "Modify Order. " << ((order[1] == 1) ? "bid: " : "ask: ") << order[2].GetString() << " amount:" << order[3].GetString() << endl;
                         if(order[1] == 1){
                             //returns true if market price was updated
-                            if(_order_books[pair_id]->record_buy(stod(order[2].GetString()), stod(order[3].GetString()))){
+                            if(_order_books[pair_id]->record_buy(pos_stod(order[2].GetString()), pos_stod(order[3].GetString()))){
                                 any_buy_updates = true;
                             }
                         } else {
-                            if(_order_books[pair_id]->record_sell(stod(order[2].GetString()), stod(order[3].GetString()))){
+                            if(_order_books[pair_id]->record_sell(pos_stod(order[2].GetString()), pos_stod(order[3].GetString()))){
                                 any_sell_updates = true;
                             }
                         }
@@ -701,11 +727,11 @@ private:
                         //_order_books[pair_id]->record_trade(stod(order[3].GetString()), stod(order[4].GetString()), ((order[2] == 1) ? 'b' : 's' ));
                     }else if(order[0] == "i"){
                         for(const auto& ask_order : order[1]["orderBook"][0].GetObject()){
-                            _order_books[pair_id]->record_sell(stod(ask_order.name.GetString()), stod(ask_order.value.GetString()));
+                            _order_books[pair_id]->record_sell(pos_stod(ask_order.name.GetString()), pos_stod(ask_order.value.GetString()));
                         }
                         any_sell_updates = true;
                         for(const auto& bid_order : order[1]["orderBook"][1].GetObject()){
-                            _order_books[pair_id]->record_buy(stod(bid_order.name.GetString()), stod(bid_order.value.GetString()));
+                            _order_books[pair_id]->record_buy(pos_stod(bid_order.name.GetString()), pos_stod(bid_order.value.GetString()));
                         }
                         any_buy_updates = true;
                     }else {
@@ -778,7 +804,8 @@ private:
         
         CURL* curl = curl_easy_init();
         struct curl_slist *header_slist = nullptr;
-        set_curl_post_options(curl, header_slist, post_data);
+        set_curl_static_post_options(curl);
+        set_curl_dynamic_post_options(curl, header_slist, post_data);
         string http_data = poloniex_single_post(curl);
         curl_slist_free_all(header_slist);
         curl_easy_cleanup(curl);
@@ -797,7 +824,8 @@ private:
 
         CURL* curl = curl_easy_init();
         struct curl_slist *header_slist = nullptr;
-        set_curl_post_options(curl, header_slist, post_data);
+        set_curl_static_post_options(curl);
+        set_curl_dynamic_post_options(curl, header_slist, post_data);
         string http_data = poloniex_single_post(curl);
         curl_slist_free_all(header_slist);
         curl_easy_cleanup(curl);
@@ -849,7 +877,7 @@ private:
             cout << "ID:" << trade_id << " : date:" << date << " : type:" << setw(4) << left << type
                  << " : rate:" << rate << " : amount:" << setw(12) << right << amount << " : total:" << setw(12) << total;
             if(highlight_rate != 0){
-                if(abs(stod(rate) - highlight_rate) < 0.000000001){
+                if(std::abs(stod(rate) - highlight_rate) < 0.000000001){
                     cout << " <---";
                 }
             }
