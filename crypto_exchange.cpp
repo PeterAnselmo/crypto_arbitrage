@@ -159,11 +159,65 @@ public:
     }
 
     void populate_trade_pairs(){
-        _pairs.clear();
-        if(_name == "poloniex"){
-            return populate_poloniex_trade_pairs();
-        }else if(_name == "gdax" || _name == "gdax-test"){
-            return populate_gdax_trade_pairs();
+
+        set_curl_get_options(_curl_get, _get_url + "?command=returnTicker");
+
+        std::string http_data = curl_get(_curl_get);
+        cout << http_data << endl;
+        rapidjson::Document products;
+        products.Parse(http_data.c_str());
+
+        trade_pair tp;
+        char curr_1[8];
+        char curr_2[8];
+        const char* market;
+        const char* it;
+        const char* sep_it;
+        unsigned int pair_id;
+        for(const auto& listed_pair : products.GetObject()){
+            if(ARB_DEBUG){
+                cout << "Import Pair: " << listed_pair.name.GetString()
+                     << " bid: " << listed_pair.value["highestBid"].GetString()
+                     << " ask: " << listed_pair.value["lowestAsk"].GetString() << endl;
+            }
+
+            pair_id = listed_pair.value["id"].GetInt();
+            _pair_names[pair_id] = listed_pair.name.GetString();
+            _order_books[pair_id] = new order_book;
+
+            //brittle, dangerous, fast way to split on known-delimiter market string
+            market = listed_pair.name.GetString();
+            it = sep_it = market;
+            while(it && *it){
+                if(*it == '_'){
+                    memcpy(curr_1, market, it-market);
+                    curr_1[it-market] = '\0';
+                    sep_it = it;
+                }
+                ++it;
+            }
+            memcpy(curr_2, sep_it+1, it - sep_it);
+
+            if(_balances[curr_1] >= 0.001 && _balances[curr_2] >= 0.001){
+                _funded_pairs[pair_id] = true;
+
+                strcpy(tp.sell, curr_2);
+                strcpy(tp.buy, curr_1);
+                tp.exchange_id = pair_id;
+                tp.quote = stod(listed_pair.value["highestBid"].GetString());
+                tp.net = (1 - _market_fee) * tp.quote;
+                tp.action = 's';
+                _pairs.push_back(tp);
+
+                strcpy(tp.sell, curr_1);
+                strcpy(tp.buy, curr_2);
+                tp.exchange_id = pair_id;
+                tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
+                tp.net = (1 - _market_fee) / tp.quote;
+                tp.action = 'b';
+                _pairs.push_back(tp);
+
+            }
         }
     }
 
@@ -628,59 +682,6 @@ public:
 
 private:
 
-    void populate_gdax_trade_pairs(){
-
-        std::string http_data = curl_get(_curl_get);
-        rapidjson::Document products;
-        products.Parse(http_data.c_str());
-
-        vector<trade_pair> pairs;
-        trade_pair tp;
-        for(auto& listed_pair : products.GetArray()){
-            if(ARB_DEBUG){
-                cout << "Fetcing Pair: " << listed_pair["id"].GetString() << "..." << endl;
-            }
-
-            char url[127];
-            strcpy(url, "https://anselmo.me/gdax/products/");
-            strcat(url, listed_pair["id"].GetString());
-            strcat(url, "/book.php");
-
-            if(ARB_DEBUG){
-                cout << "Product Book URL: " << url << endl;
-            }
-
-
-            try {
-                http_data = curl_get(url);
-            } catch (int exception){
-                continue;
-            }
-            rapidjson::Document book_data;
-            book_data.Parse(http_data.c_str());
-            if(!book_data["bids"].Empty() && !book_data["asks"].Empty()){
-                /*
-                cout << "Importing Pair: " << listed_pair["id"].GetString() 
-                     << " bid: " << book_data["bids"][0][0].GetString()
-                     << " ask: " << book_data["asks"][0][0].GetString()<< endl;
-                     */
-                strcpy(tp.sell, listed_pair["base_currency"].GetString());
-                strcpy(tp.buy, listed_pair["quote_currency"].GetString());
-                tp.quote = stod(book_data["bids"][0][0].GetString());
-                tp.net = (1.0 - _market_fee) * tp.quote;
-                tp.action = 'b';
-                _pairs.push_back(tp);
-
-                strcpy(tp.sell, listed_pair["quote_currency"].GetString());
-                strcpy(tp.buy, listed_pair["base_currency"].GetString());
-                tp.quote = stod(book_data["asks"][0][0].GetString());
-                tp.net = (1.0 - _market_fee) / tp.quote;
-                tp.action = 's';
-                _pairs.push_back(tp);
-            }
-
-        }
-    }
 
     inline void process_ticker_ticker(unsigned int pair_id, const rapidjson::Document& ticker_update){
 
@@ -892,67 +893,6 @@ private:
     }
 
 
-    void populate_poloniex_trade_pairs(){
-
-        set_curl_get_options(_curl_get, _get_url + "?command=returnTicker");
-
-        std::string http_data = curl_get(_curl_get);
-        rapidjson::Document products;
-        products.Parse(http_data.c_str());
-
-        trade_pair tp;
-        char curr_1[8];
-        char curr_2[8];
-        const char* market;
-        const char* it;
-        const char* sep_it;
-        unsigned int pair_id;
-        for(const auto& listed_pair : products.GetObject()){
-            if(ARB_DEBUG){
-                cout << "Import Pair: " << listed_pair.name.GetString()
-                     << " bid: " << listed_pair.value["highestBid"].GetString()
-                     << " ask: " << listed_pair.value["lowestAsk"].GetString() << endl;
-            }
-
-            pair_id = listed_pair.value["id"].GetInt();
-            _pair_names[pair_id] = listed_pair.name.GetString();
-            _order_books[pair_id] = new order_book;
-
-            //brittle, dangerous, fast way to split on known-delimiter market string
-            market = listed_pair.name.GetString();
-            it = sep_it = market;
-            while(it && *it){
-                if(*it == '_'){
-                    memcpy(curr_1, market, it-market);
-                    curr_1[it-market] = '\0';
-                    sep_it = it;
-                }
-                ++it;
-            }
-            memcpy(curr_2, sep_it+1, it - sep_it);
-
-            if(_balances[curr_1] >= 0.001 && _balances[curr_2] >= 0.001){
-                _funded_pairs[pair_id] = true;
-
-                strcpy(tp.sell, curr_2);
-                strcpy(tp.buy, curr_1);
-                tp.exchange_id = pair_id;
-                tp.quote = stod(listed_pair.value["highestBid"].GetString());
-                tp.net = (1 - _market_fee) * tp.quote;
-                tp.action = 's';
-                _pairs.push_back(tp);
-
-                strcpy(tp.sell, curr_1);
-                strcpy(tp.buy, curr_2);
-                tp.exchange_id = pair_id;
-                tp.quote = stod(listed_pair.value["lowestAsk"].GetString());
-                tp.net = (1 - _market_fee) / tp.quote;
-                tp.action = 'b';
-                _pairs.push_back(tp);
-
-            }
-        }
-    }
 
 
 };
