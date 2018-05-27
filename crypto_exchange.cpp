@@ -114,10 +114,43 @@ public:
     }
 
     void populate_balances(){
-        if(_name == "poloniex"){
-            populate_poloniex_balances();
+
+        char post_data[120];
+        strcpy(post_data, "command=returnCompleteBalances");
+
+        CURL* curl = curl_easy_init();
+        struct curl_slist *header_slist = nullptr;
+        set_curl_static_post_options(curl);
+        set_curl_dynamic_post_options(curl, header_slist, post_data);
+        string http_data = poloniex_single_post(curl);
+        curl_slist_free_all(header_slist);
+        curl_easy_cleanup(curl);
+
+        rapidjson::Document balance_json;
+        balance_json.Parse(http_data.c_str());
+
+        double btc_val;
+        double btc_min = 1000;
+        double btc_max = 0;
+        //convert to hash for fast lookups. Is this necessary? Should the currency be stored as JSON?
+        for(const auto& currency : balance_json.GetObject()){
+            btc_val = stof(currency.value["btcValue"].GetString());
+            if(btc_val > 0.0001 && btc_val > btc_max){
+                btc_max = btc_val;
+            }
+            if(btc_val > 0.0001 && btc_val < btc_min){
+                btc_min = btc_val;
+            }
+            _balances[currency.name.GetString()] = stod(currency.value["available"].GetString());
         }
+        /*
+        if(btc_max * balance_utilization > btc_min){
+            cout << "Error, Min/Max BTC balance values " << btc_min << "/" << btc_max << " >" << balance_utilization << " balance utilization" << endl;
+            throw ARB_ERR_INSUFFICIENT_FUNDS;
+        }
+        */
     }
+
 
     void print_balances() const{
         for(const auto& currency : _balances){
@@ -238,7 +271,7 @@ public:
                         try{
                             execute_trades(profitable_trade);
                         } catch (int exception) {
-                            //print_market_data(profitable_trade);
+                            print_market_data(profitable_trade);
                             throw exception;
                         }
                         print_market_data(profitable_trade);
@@ -776,8 +809,13 @@ private:
         const std::unique_ptr<std::string> http_data(new std::string());
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, http_data.get());
 
+        auto begin = std::chrono::steady_clock::now();
+
         CURLcode result;
         result = curl_easy_perform(curl);
+
+        auto end = std::chrono::steady_clock::now();
+        cout << "Curl POST executed: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << " milliseconds" << endl;
 
         long http_code;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
@@ -816,42 +854,6 @@ private:
         return stod(fee_json["takerFee"].GetString());
     }
 
-
-    void populate_poloniex_balances(){
-
-        char post_data[120];
-        strcpy(post_data, "command=returnCompleteBalances");
-
-        CURL* curl = curl_easy_init();
-        struct curl_slist *header_slist = nullptr;
-        set_curl_static_post_options(curl);
-        set_curl_dynamic_post_options(curl, header_slist, post_data);
-        string http_data = poloniex_single_post(curl);
-        curl_slist_free_all(header_slist);
-        curl_easy_cleanup(curl);
-
-        rapidjson::Document balance_json;
-        balance_json.Parse(http_data.c_str());
-
-        double btc_val;
-        double btc_min = 1000;
-        double btc_max = 0;
-        //convert to hash for fast lookups. Is this necessary? Should the currency be stored as JSON?
-        for(const auto& currency : balance_json.GetObject()){
-            btc_val = stof(currency.value["btcValue"].GetString());
-            if(btc_val > 0.0001 && btc_val > btc_max){
-                btc_max = btc_val;
-            }
-            if(btc_val > 0.0001 && btc_val < btc_min){
-                btc_min = btc_val;
-            }
-            _balances[currency.name.GetString()] = stod(currency.value["available"].GetString());
-        }
-        if(btc_max * balance_utilization > btc_min){
-            cout << "Error, Min/Max BTC balance values " << btc_min << "/" << btc_max << " >" << balance_utilization << " balance utilization" << endl;
-            throw ARB_ERR_INSUFFICIENT_FUNDS;
-        }
-    }
 
     void print_trade_history(unsigned int pair_id, unsigned int num_trades=10, double highlight_rate = 0) const{
 

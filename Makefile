@@ -2,6 +2,8 @@ arb: arb.cpp arb_util.cpp crypto_exchange.cpp order_book.cpp trade_seq.cpp
 	g++ arb.cpp -std=c++11 -Wall -O3 -lcurl -lcryptopp -lpthread -lm -lcpprest -o arb
 trade: trade.cpp arb_util.cpp crypto_exchange.cpp
 	g++ trade.cpp -std=c++11 -Wall -O2 -lcurl -lcryptopp -lpthread -lm -lcpprest -o trade
+ping: ping.cpp arb_util.cpp crypto_exchange.cpp
+	g++ ping.cpp -std=c++11 -Wall -O3 -lcurl -lcryptopp -lpthread -lm -lcpprest -o ping
 tests:
 	g++ test/main.cpp -std=c++11 -Wall -lcurl -lcryptopp -lgtest -lpthread -lm -lcpprest -o test/main_test
 benchmark: benchmark.cpp arb_util.cpp crypto_exchange.cpp
