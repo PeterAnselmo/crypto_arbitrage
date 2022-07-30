@@ -3,15 +3,18 @@
 
 #include <iostream>
 #include <string>
-#include "lib/t-hmac.c"
+#include "arb_util.cpp"
+#include "rapidjson/document.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/stringbuffer.h"
 
 using namespace std;
-
 class crypto_exchange {
     string _name;
     float _market_fee;
+	map<string, float> _balances;
 
-    public:
+public:
 
     crypto_exchange(string new_name){
         _name = new_name;
@@ -34,46 +37,108 @@ class crypto_exchange {
         return _market_fee;
     }
 
-
-    void get_poloniex_balances(){
-        std::string api_secret = "4f3698099cddc69418e0b1918f78b3afc887f4b6baea6f17aab9d453e7eec8e8a30fa52057391371b4f4d5c0e48aea6bfb051d534fe0c38df06fc37ce3d49f54";
-        std::string api_key = "QTMALQ04-HWB2QMKQ-8TZ7VG2X-3MA8AD8R";
-
-
-        const byte headers = "Now is the time for all good men to come to the aide of their country";
-
-        OpenSSL_add_all_algorithms();
-        /* Sign and Verify HMAC keys */
-        EVP_PKEY *skey = NULL, *vkey = NULL;
-
-        int rc = make_keys(&skey, &vkey);
-        assert(rc == 0);
-        if(rc != 0)
-            exit(1);
-        
-        assert(skey != NULL);
-        if(skey == NULL)
-            exit(1);
-        
-        assert(vkey != NULL);
-        if(vkey == NULL)
-            exit(1);
-        
-        byte* sig = NULL;
-        size_t slen = 0;
-        rc = sign_it(headers, sizeof(headers), &sig, &slen, skey);
-        assert(rc == 0);
-        if(rc == 0) {
-            printf("Created signature\n");
-        } else {
-            printf("Failed to create signature, return code %d\n", rc);
-            exit(1); /* Should cleanup here */
+    void populate_balances(){
+        if(_name == "poloniex"){
+            populate_poloniex_balances();
         }
-        
-        print_it("Signature", sig, slen);
-
     }
 
+    void print_balances(){
+        for(const auto& currency : _balances){
+            cout << currency.first << ": " << currency.second << endl;
+        }
+    }
+
+
+private:
+
+    std::string poloniex_post(const std::string post_data) {
+
+        string url = "https://poloniex.com/tradingApi";
+        //string url = "http://mail.anselmo.me/echo.php";
+        string api_secret = getenv("ARB_API_SECRET");
+        string api_key_header = getenv("ARB_API_KEY");
+        string signature = hmac_512_sign(api_secret, post_data);
+
+        CURLcode result;
+        CURL* curl = curl_easy_init();
+
+        // Set remote URL.
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+        //const char* c_post_data = post_data.c_str();
+        //cout << "Post Data: " << c_post_data << endl;
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data.c_str());
+
+        struct curl_slist *chunk = NULL;
+        chunk = curl_slist_append(chunk, api_key_header.c_str());
+        string sig_header = "Sign:" + signature;
+        chunk = curl_slist_append(chunk, sig_header.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+
+        if(ARB_DEBUG){
+            curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
+        }
+
+        // Don't bother trying IPv6, which would increase DNS resolution time.
+        curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+        // Don't wait forever, time out after 10 seconds.
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3);
+
+
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "redshift crypto automated trader");
+
+        // Hook up data handling function.
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback);
+
+        // Hook up data container (will be passed as the last parameter to the
+        // callback handling function).  Can be any pointer type, since it will
+        // internally be passed as a void pointer.
+        const std::unique_ptr<std::string> http_data(new std::string());
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, http_data.get());
+
+        result = curl_easy_perform(curl);
+
+        long http_code;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        curl_easy_cleanup(curl);
+
+        if(result != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(result));
+            throw 20;
+        }
+        if (http_code == 200) {
+            if(ARB_DEBUG){
+                std::cout << "\nGot successful response from " << url << std::endl;
+                std::cout << "HTTP data was:\n" << *http_data.get() << std::endl;
+            }
+        } else {
+            std::cout << "Received " << http_code << " response code from " << url << endl;
+            throw 30;
+        }
+
+        return *http_data;
+    }
+
+    void populate_poloniex_balances(){
+
+        string post_data = "command=returnBalances&nonce=" + to_string(time(0));
+
+        string http_data = poloniex_post(post_data);
+
+        rapidjson::Document balance_json;
+        balance_json.Parse(http_data.c_str());
+
+        //convert to hash for fast lookups. Is this necessary? Should the currency be stored as JSON?
+        for(auto& currency : balance_json.GetObject()){
+            _balances[currency.name.GetString()] = stof(currency.value.GetString());
+        }
+    }
 
 };
 

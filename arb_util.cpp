@@ -5,7 +5,16 @@
 #include <string>
 #include <curl/curl.h>
 
+#include "cryptopp/cryptlib.h"
+#include "cryptopp/hmac.h"
+#include "cryptopp/modes.h"
+#include "cryptopp/sha.h"
+#include "cryptopp/hex.h"
+#include "cryptopp/filters.h"
+#include "cryptopp/base64.h"
+
 using namespace std;
+using namespace CryptoPP;
 
 namespace
 {
@@ -90,6 +99,33 @@ std::vector<std::string> split(const std::string &text, char sep) {
   }
   tokens.push_back(text.substr(start));
   return tokens;
+}
+
+//https://stackoverflow.com/questions/39721005/how-to-create-a-hmac-256-using-the-crypto-library#answer-39742465
+string hmac_512_sign(string key, string plain) {
+
+    string mac, encoded;
+    try {
+		HMAC<SHA512 > hmac((byte*)key.c_str(), key.length());
+
+		StringSource(plain, true,
+			new HashFilter(hmac,
+				new StringSink(mac)
+			) // HashFilter
+		); // StringSource
+
+	} catch(const CryptoPP::Exception& e) {
+
+		cerr << e.what() << endl;
+    }
+
+    encoded.clear();
+    StringSource(mac, true,
+            new HexEncoder(
+                    new StringSink(encoded)
+            ) // Base64Encoder
+    ); // StringSource
+    return encoded;
 }
 
 #endif
